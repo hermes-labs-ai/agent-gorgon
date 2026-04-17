@@ -1,0 +1,41 @@
+name: hermes-score
+path: ~/Documents/projects/hermes-labs-hackathon-2/hermes-score/
+entry: cd ~/Documents/projects/hermes-labs-hackathon-2/hermes-score && PYTHONPATH=src python3 -m hermes_score.cli score --stdin --json
+description: "EU AI Act compliance readiness scorer. Input company signals JSON, output 0-100 score + tier + top 3 gaps + recommendations."
+version: "0.1.0"
+
+input:
+  format: json
+  schema: '{"company": "str", "industry": "str", "signals": {"has_dpo": "bool", "has_ai_ethics_team": "bool", "gdpr_compliant": "bool", "published_ai_policy": "bool", "has_model_registry": "bool", "has_bias_testing": "bool", "has_incident_response": "bool", "eu_based": "bool", "uses_high_risk_ai": "bool", "has_human_oversight": "bool", "has_transparency_report": "bool", "has_data_governance": "bool"}}'
+  accepts_stdin: true
+  accepts_file: true
+  accepts_args: "score [FILE] | score --stdin | example | batch DIR"
+  example: 'echo ''{"company":"Acme","industry":"fintech","signals":{"has_dpo":true,"gdpr_compliant":true,"uses_high_risk_ai":true}}'' | (cd ~/Documents/projects/hermes-labs-hackathon-2/hermes-score && PYTHONPATH=src python3 -m hermes_score.cli score --stdin --json)'
+
+output:
+  format: json
+  schema: '{"company": "str", "industry": "str", "score": "int", "tier": "str", "top_3_gaps": ["str"], "recommendations": ["str"]}'
+  writes_stdout: true
+  writes_file: null
+  example_output: '{"company": "Acme", "industry": "fintech", "score": 25, "tier": "Critical Gap", "top_3_gaps": ["has_model_registry", "has_bias_testing", "has_ai_ethics_team"], "recommendations": ["Build model registry with version tracking", "Implement bias testing pipeline (Annex C, EU AI Act)", "Form AI ethics review board (mandatory for high-risk)"]}'
+
+dependencies:
+  python: []
+  system: []
+  services: []
+  installed: false
+  install_command: "cd ~/Documents/projects/hermes-labs-hackathon-2/hermes-score && pip install -e ."
+  auto_fix_safe: true
+interactive: false
+tested: true
+test_count: 23
+test_command: "cd ~/Documents/projects/hermes-labs-hackathon-2/hermes-score && PYTHONPATH=src python3 -m pytest -q"
+
+tags: ["compliance", "eu-ai-act", "scoring", "gtm", "audit", "readiness", "article-9", "article-14"]
+category: gtm
+source: "hermes-labs-hackathon-2"
+pipes_well_with: ["supersearch", "extract.py", "corpus.db", "lintlang", "hermes-audit"]
+
+one_liner: "Scores any company 0-100 on EU AI Act readiness with tier + top gaps + recommendations."
+when_to_use: "When you need to quantify a company's compliance gap before outreach, or to triage a list of targets by readiness."
+when_not_to_use: "When you need actual behavioral testing of an AI system — use hermes-audit instead. Score is from declared signals, not measured behavior."

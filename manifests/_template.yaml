@@ -1,0 +1,42 @@
+# Tool manifest template — copy to {tool-name}.yaml and fill in.
+# Required fields are marked REQUIRED. Optional fields can be omitted.
+
+name: tool-name                              # REQUIRED — unique identifier (kebab-case)
+path: ~/path/to/tool/                        # REQUIRED — absolute or ~-prefixed path
+entry: python3 -m tool_name                  # REQUIRED — exact command, copy-paste ready
+description: "One sentence describing what the tool does."   # REQUIRED
+version: "0.1.0"                             # REQUIRED — semver
+
+input:
+  format: json                               # json | csv | text | stdin | file
+  schema: '{"field": "type"}'                # JSON schema string for inputs
+  accepts_stdin: false
+  accepts_file: false
+  accepts_args: "--flag <value>"             # exact CLI flags
+  example: 'python3 -m tool_name --flag value'   # MANDATORY — runnable example
+
+output:
+  format: json                               # json | csv | text | markdown | file
+  schema: '{"result": "type"}'
+  writes_stdout: true
+  writes_file: null                          # or "--output <path>" if applicable
+  example_output: '{"result": "value"}'      # MANDATORY — expected shape
+
+dependencies:
+  python: []                                 # pip packages
+  system: []                                 # brew/system packages
+  services: []                               # required running services (e.g., "ollama")
+  installed: false                           # set true after pip install + pip check
+interactive: false                           # true if it prompts for input — agents skip these
+tested: false
+test_count: 0
+test_command: "pytest -q"
+
+tags: []                                     # search keywords
+category: experimental                       # gtm | research | security | profiling | infrastructure | data | experimental
+source: "manual"                             # which session/hackathon created it
+pipes_well_with: []                          # known compatible tools
+
+one_liner: "Short pitch of what this tool does."
+when_to_use: "When you need X."
+when_not_to_use: "When Y — use {alternative} instead."
