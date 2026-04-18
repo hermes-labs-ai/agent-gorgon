@@ -21,3 +21,10 @@ hooks/logs/
 node_modules/
 dist/
 build/
+
+# PII / outreach — NEVER commit. See 2026-04-17 incident.
+_launch/outreach/
+_launch/**/email-targets.csv
+_launch/**/*leads*.csv
+_launch/**/*targets*.csv
+_launch/**/*contacts*.csv
