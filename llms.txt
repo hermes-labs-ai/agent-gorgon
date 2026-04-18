@@ -1,0 +1,11 @@
+# Owner: Hermes Labs - https://hermes-labs.ai
+
+# agent-gorgon
+> Claude Code hook suite that blocks agents from fabricating tool output when a registered tool exists.
+
+## Repo
+https://github.com/roli-lpci/agent-gorgon
+
+## Key files
+- hooks/ — the 3-layer hook system (user_prompt_submit.py, tool_shadow.py, csv_quality_gate.py)
+- tests/ — 105 tests

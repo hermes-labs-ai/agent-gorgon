@@ -2,7 +2,7 @@
 
 > Stop your AI agents from fabricating tool output when a registered tool exists for the task.
 
-A 3-layer defense for [Claude Code](https://docs.claude.com/en/docs/claude-code) (and any agent runtime that supports hooks). Built by [Hermes Labs](https://github.com/roli-lpci).
+A 3-layer defense for [Claude Code](https://docs.claude.com/en/docs/claude-code) (and any agent runtime that supports hooks). Built by [Hermes Labs](https://hermes-labs.ai).
 
 ## The problem
 
@@ -90,3 +90,6 @@ MIT — see [LICENSE](LICENSE).
 - [`lintlang`](https://github.com/roli-lpci/lintlang) — static linter for AI agent configs
 - [`langquant`](https://github.com/roli-lpci/langquant) — LPCI proof: language scaffold as Markov state for stateless LLMs
 - [`claude-router`](https://github.com/roli-lpci/claude-router) — scaffold-aware routing for Claude API
+
+---
+Built by [Hermes Labs](https://hermes-labs.ai) · [@roli-lpci](https://github.com/roli-lpci)
