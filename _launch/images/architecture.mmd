@@ -1,0 +1,22 @@
+flowchart TD
+    UP["User types prompt"] --> UPS["UserPromptSubmit hook\nhooks/user_prompt_submit.py"]
+    UPS --> FT["find_tool.py\nkeyword + semantic search"]
+    FT --> MAN["manifests/*.yaml\nYAML tool descriptors"]
+    FT --> |"Top 3 matches\nentry commands injected"| CTX["additionalContext\nadded to model prompt"]
+    CTX --> MODEL["Model generates response"]
+    MODEL --> PTU["PreToolUse hook\nhooks/pre_tool_use_bash.py"]
+    PTU --> |"Bash command shadows\nregistered tool?"| BLOCK1["exit 2: Block\nRoute to real tool"]
+    PTU --> |"Clean command"| EXEC["Bash executes"]
+    MODEL --> STOP["Stop hook\nhooks/stop.py"]
+    STOP --> FAB{"Fabricated\nstructured output\ndetected?"}
+    FAB --> |"Yes: exit 2"| BLOCK2["Block stop\nForce re-run with tool"]
+    FAB --> |"No: exit 0"| SHOW["Response shown to user"]
+    EXEC --> SHOW
+
+    style UPS fill:#1e3a5f,color:#fff
+    style PTU fill:#1e3a5f,color:#fff
+    style STOP fill:#1e3a5f,color:#fff
+    style FT fill:#0e2840,color:#7dd3fc
+    style MAN fill:#0e2840,color:#7dd3fc
+    style BLOCK1 fill:#7f1d1d,color:#fff
+    style BLOCK2 fill:#7f1d1d,color:#fff

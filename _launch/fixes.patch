@@ -1,0 +1,8 @@
+--- a/tests/test_user_prompt_submit.py
++++ b/tests/test_user_prompt_submit.py
+@@ -206,7 +206,7 @@ class TestBuildResponse:
+ class TestEndToEnd:
+-    HOOK_PATH = HOOK_DIR / "hook.py"
++    HOOK_PATH = HOOK_DIR.parent / "hooks" / "user_prompt_submit.py"
+
+     def _run(self, stdin_text: str, env_extra: dict | None = None) -> subprocess.CompletedProcess:

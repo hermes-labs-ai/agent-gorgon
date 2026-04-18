@@ -1,0 +1,31 @@
+# README-badges-and-hero.diff
+#
+# Adds a hero image and badge block to README.md.
+#
+# Apply with:
+#   cd ~/Documents/projects/agent-gorgon
+#   cp _launch/images/hero.jpg docs/hero.jpg                # or docs/demo.gif once recorded
+#   git apply _launch/distribution/README-badges-and-hero.diff
+#
+# If the diff fails to apply cleanly (e.g. README has drifted), copy-paste the
+# NEW block below the --- marker in README.md manually.
+
+--- a/README.md
++++ b/README.md
+@@ -1,5 +1,15 @@
++<p align="center">
++  <img src="docs/hero.jpg" alt="agent-gorgon: stop your AI agents from fabricating tool output" width="720">
++</p>
++
+ # Agent Gorgon
+
+ > Stop your AI agents from fabricating tool output when a registered tool exists for the task.
+
++[![PyPI](https://img.shields.io/pypi/v/agent-gorgon?color=blue)](https://pypi.org/project/agent-gorgon/)
++[![Python](https://img.shields.io/pypi/pyversions/agent-gorgon)](https://pypi.org/project/agent-gorgon/)
++[![License](https://img.shields.io/github/license/roli-lpci/agent-gorgon)](LICENSE)
++[![Tests](https://github.com/roli-lpci/agent-gorgon/actions/workflows/test.yml/badge.svg)](https://github.com/roli-lpci/agent-gorgon/actions/workflows/test.yml)
++[![Downloads](https://img.shields.io/pypi/dm/agent-gorgon)](https://pypi.org/project/agent-gorgon/)
++[![Hermes Labs](https://img.shields.io/badge/by-Hermes%20Labs-black)](https://github.com/roli-lpci)
++
+ A 3-layer defense for [Claude Code](https://docs.claude.com/en/docs/claude-code) (and any agent runtime that supports hooks). Built by [Hermes Labs](https://github.com/roli-lpci).

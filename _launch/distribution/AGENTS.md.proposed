@@ -1,0 +1,56 @@
+# AGENTS.md
+
+## What this repo is
+Agent Gorgon is a 3-layer hook defense for Claude Code that prevents agents from fabricating
+tool output when a registered tool exists for the task. It intercepts at UserPromptSubmit,
+Stop, and PreToolUse/Bash to inject tool context, detect post-hoc confabulation, and block
+ad-hoc reimplementations.
+
+## Primary entry command
+```
+python3 find_tool.py "<query>"
+```
+
+## Input format
+- `find_tool.py` accepts a plain-text query string as a positional argument.
+- Hook scripts read JSON from stdin (Claude Code hook event payloads).
+- Manifests are YAML files in `manifests/`.
+
+## Output format
+- `find_tool.py` writes to stdout: ranked list of matching tools with name, one-liner, entry command.
+- Hooks write JSON to stdout: `{"hookSpecificOutput": {...}}` per Claude Code hook spec.
+- Exit codes: 0 = pass-through, 2 = block (PreToolUse/Bash and Stop hooks only).
+
+## Deterministic
+Yes. No LLM calls. No randomness. Same query returns same ranked results given same manifests.
+
+## Network required
+No. Fully local. All tools, manifests, and logic run offline.
+
+## Where examples live
+- `manifests/hermes-score.yaml` - reference manifest showing all fields
+- `manifests/_template.yaml` - copy this to add a new manifest
+- `tests/` - 100+ passing tests covering all three hooks and find_tool.py
+
+## Files you must never modify
+- `hooks/user_prompt_submit.py` - read-only for callers; hook contract is strict
+- `hooks/stop.py` - same
+- `hooks/pre_tool_use_bash.py` - same
+- `manifests/_template.yaml` - canonical schema; edit breaks all downstream validation
+
+## How to add a new manifest
+1. Copy `manifests/_template.yaml` to `manifests/<tool-name>.yaml`
+2. Fill all REQUIRED fields: name, path, entry, description, version
+3. Fill `input.example` and `output.example_output` (mandatory for find_tool.py scoring)
+4. Set `tested: true` and `test_count` after verifying the tool runs
+5. Run `python3 find_tool.py "<tool name>"` to confirm it appears in results
+
+## Test command
+```
+python3 -m pytest tests/ -q
+```
+
+## Voice rules when updating docs
+- No em-dashes. Use commas or periods instead.
+- No: delve, leverage, utilize, revolutionize, empower, streamline, game-changer, synergize.
+- Terse. Agent-facing. One sentence per concept.
