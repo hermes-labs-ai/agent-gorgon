@@ -23,6 +23,13 @@ import pytest
 
 HOOK = Path.home() / "ai-infra" / "hackathon" / "agent-5-contrarian" / "tool_shadow.py"
 
+# Integration tests — require the Hermes Labs internal hackathon workspace.
+# On CI runners (no workspace), all tests in this file skip.
+pytestmark = pytest.mark.skipif(
+    not HOOK.exists(),
+    reason="requires ~/ai-infra/hackathon/agent-5-contrarian/tool_shadow.py (integration tests)",
+)
+
 
 def run_hook(payload: dict, timeout: int = 8) -> tuple[int, str, str]:
     """Invoke hook with payload, return (exit_code, stdout, stderr)."""

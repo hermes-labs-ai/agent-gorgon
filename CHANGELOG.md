@@ -22,7 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - YAML manifest system with `_template.yaml` schema and `hermes-score.yaml` reference implementation.
 - `install.sh`: one-command hook registration into Claude Code `settings.json`.
 - Converters: `csv2json.py`, `json2csv.py`, `json2text.py`, `text2json.py`.
-- 100 passing tests covering all hooks and the discovery engine.
+- 116 passing tests covering all hooks and the discovery engine.
 
 [Unreleased]: https://github.com/roli-lpci/agent-gorgon/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/roli-lpci/agent-gorgon/releases/tag/v0.1.0
