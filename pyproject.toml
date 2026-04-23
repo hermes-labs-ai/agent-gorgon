@@ -5,26 +5,47 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-gorgon"
 version = "0.1.0"
-description = "Stop your AI agents from fabricating tool output when a registered tool exists. 3-layer hook defense for Claude Code."
+description = "Stop AI agents from fabricating tool output when a registered tool exists — 3-layer hook defense for Claude Code"
 authors = [
   {name = "Rolando Bosch", email = "rbosch@lpci.ai"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-# All imports in hooks/, find_tool.py, and converters/ are stdlib only:
-# argparse, csv, datetime, io, json, os, pathlib, re, shutil, subprocess, sys, time, typing
 dependencies = []
+keywords = [
+  "agent",
+  "claude-code",
+  "tool-use",
+  "fabrication-detection",
+  "hooks",
+  "llm-safety",
+  "ai-audit",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
 
 [project.scripts]
 agent-gorgon = "find_tool:main"
 
 [project.urls]
-Homepage = "https://github.com/roli-lpci/agent-gorgon"
-Repository = "https://github.com/roli-lpci/agent-gorgon"
-Issues = "https://github.com/roli-lpci/agent-gorgon/issues"
-Documentation = "https://github.com/roli-lpci/agent-gorgon/blob/main/docs/BLUEPRINT.md"
-Organization = "https://hermes-labs.ai"
+Homepage = "https://hermes-labs.ai"
+Repository = "https://github.com/hermes-labs-ai/agent-gorgon"
+Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
+Documentation = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/docs/BLUEPRINT.md"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4.0",
+]
 
 [tool.hatch.build.targets.wheel]
 # hooks/, manifests/, and converters/ do not have __init__.py files - they are script collections,

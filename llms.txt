@@ -1,11 +1,61 @@
-# Owner: Hermes Labs - https://hermes-labs.ai
-
 # agent-gorgon
-> Claude Code hook suite that blocks agents from fabricating tool output when a registered tool exists.
 
-## Repo
-https://github.com/roli-lpci/agent-gorgon
+3-layer hook defense for Claude Code that stops AI agents from fabricating tool
+output when a registered tool exists for the task.
 
-## Key files
-- hooks/ — the 3-layer hook system (user_prompt_submit.py, tool_shadow.py, csv_quality_gate.py)
-- tests/ — 105 tests
+## What it is
+
+agent-gorgon intercepts three points in the Claude Code agent loop:
+
+| Hook | When | What |
+|---|---|---|
+| UserPromptSubmit | Before model thinks | Injects registered tool entry commands into context |
+| Stop | After model finishes | Detects fabricated structured output when tool was not called |
+| PreToolUse (Bash) | Before bash runs | Blocks ad-hoc tool reimplementations |
+
+Plus a discovery engine — `find_tool.py` — that reads YAML manifests and
+returns copy-paste entry commands for natural-language queries.
+
+## When to use
+
+- You have Claude Code agents with registered tools that sometimes fabricate output
+- You need an auditable trail: tool-invoked vs model-generated
+- You want defense-in-depth without a policy-engine project
+
+## When not to use
+
+- Agent runtimes without pre/post hook points
+- Single-shot chat with no registered tools
+- Process sandboxing or network egress control (different layer)
+
+## Install
+
+```bash
+git clone https://github.com/hermes-labs-ai/agent-gorgon
+cd agent-gorgon
+bash install.sh
+```
+
+Zero runtime dependencies. Python 3.10+.
+
+## Key commands
+
+```bash
+# Find a registered tool for a task
+python3 find_tool.py "score EU AI Act compliance"
+
+# Run the test suite
+python3 -m pytest tests/ -q
+# 116 tests, all hooks + discovery engine
+```
+
+## Add your own tool
+
+1. Copy `manifests/_template.yaml` to `manifests/<tool-name>.yaml`
+2. Fill `name`, `path`, `entry`, `description`, `version`, `input.example`, `output.example_output`
+3. Run `python3 find_tool.py "<tool name>"` to confirm it appears
+
+## Source
+
+https://github.com/hermes-labs-ai/agent-gorgon
+MIT. Part of the Hermes Labs audit infrastructure stack.

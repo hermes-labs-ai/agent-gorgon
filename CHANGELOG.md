@@ -8,9 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Pending
-- Apply `_launch/fixes.patch` to fix 5 failing TestEndToEnd tests (`git apply _launch/fixes.patch`)
 - Publish to PyPI (configure Trusted Publishing at pypi.org first, then push a v* tag)
-- Copy `_launch/images/hero.jpg` to `docs/hero.jpg` and apply badge diff
 - Set GitHub repo description and topics (`bash _launch/gh-metadata.sh`)
 - Upload `_launch/images/social-1200x630.jpg` as GitHub social preview (Settings > Social Preview)
 
