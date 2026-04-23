@@ -29,6 +29,16 @@ STOP_HOOK = SYNTHESIS_DIR / "stop_hook.py"
 AGENT1_HOOK = Path.home() / "ai-infra" / "hackathon" / "agent-1-hook" / "hook.py"
 AGENT5_HOOK = Path.home() / "ai-infra" / "hackathon" / "agent-5-contrarian" / "tool_shadow.py"
 
+# Integration tests — require the Hermes Labs internal hackathon workspace
+# at ~/ai-infra/hackathon/agent-{1,5,7}-*. These tests exercise hooks that
+# live outside the agent-gorgon package. On CI runners (no workspace) the
+# whole module skips cleanly. On Roli's machine (workspace present) all
+# tests run normally.
+pytestmark = pytest.mark.skipif(
+    not (SYNTHESIS_DIR.exists() and AGENT1_HOOK.exists() and AGENT5_HOOK.exists()),
+    reason="requires ~/ai-infra/hackathon/agent-{1,5,7}/ workspace (integration tests)",
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
