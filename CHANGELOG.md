@@ -7,10 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Pending
-- Publish to PyPI (configure Trusted Publishing at pypi.org first, then push a v* tag)
-- Set GitHub repo description and topics (`bash _launch/gh-metadata.sh`)
-- Upload `_launch/images/social-1200x630.jpg` as GitHub social preview (Settings > Social Preview)
+_Nothing yet._
 
 ## [0.1.0] - 2026-04-16
 
