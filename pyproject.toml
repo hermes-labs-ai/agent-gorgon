@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
   "psutil>=5.9",
   "PyYAML>=6.0.3",
-  "httpx>=0.27",
+  "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
