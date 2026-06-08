@@ -1,6 +1,6 @@
-# suy-sideguy
+# agent-warden
 
-Runtime policy guard for autonomous agent processes.
+agent-warden is a runtime policy guard for autonomous agent processes.
 
 Use this repo when you need to:
 - monitor process, file, and network behavior after an agent starts

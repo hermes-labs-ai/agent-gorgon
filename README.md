@@ -1,14 +1,14 @@
-# suy-sideguy
+# agent-warden
 
-suy-sideguy is a runtime policy guard for autonomous AI agents that enforces kill/flag policy on a live agent process and emits a forensic report of what it actually did.
+agent-warden is a runtime policy guard for autonomous AI agents that enforces kill/flag policy on a live agent process and emits a forensic report of what it actually did.
 
 **Watch an agent process and SIGKILL it on policy violation.** Userspace warden that scores file, network, and subprocess behavior against a YAML policy and stops the agent at the action that's about to break things — not the postmortem an hour later.
 
 [![PyPI](https://img.shields.io/pypi/v/suy-sideguy)](https://pypi.org/project/suy-sideguy/)
 [![Python](https://img.shields.io/pypi/pyversions/suy-sideguy)](https://pypi.org/project/suy-sideguy/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
-[![CI](https://github.com/hermes-labs-ai/suy-sideguy/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/suy-sideguy/actions/workflows/ci.yml)
-[![Hermes Seal](https://img.shields.io/badge/hermes--seal-manifest%20staged-blue)](https://github.com/hermes-labs-ai/suy-sideguy)
+[![CI](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml)
+[![Hermes Seal](https://img.shields.io/badge/hermes--seal-manifest%20staged-blue)](https://github.com/hermes-labs-ai/agent-warden)
 
 If your agent passed every static check and then deleted 40 files in 8 seconds, this is the watcher that would have stopped it at file 4. The static gate was never going to catch a runtime decision.
 
@@ -25,6 +25,8 @@ If your agent passed every static check and then deleted 40 files in 8 seconds, 
 ```bash
 pip install suy-sideguy
 ```
+
+(package still publishes as suy-sideguy; renaming to agent-warden next release)
 
 Python 3.9+.
 
@@ -50,7 +52,7 @@ suy-forensic-report --last-hours 24
 
 ## When to use it
 
-Use `suy-sideguy` when you run autonomous or semi-autonomous agents and need *userspace* runtime containment, policy enforcement, and forensic evidence — as one layer in a defense-in-depth setup.
+Use `agent-warden` when you run autonomous or semi-autonomous agents and need *userspace* runtime containment, policy enforcement, and forensic evidence — as one layer in a defense-in-depth setup.
 
 ## When not to use it
 
@@ -58,7 +60,7 @@ Use `suy-sideguy` when you run autonomous or semi-autonomous agents and need *us
 - Not a substitute for input-side prompt-injection defenses.
 - Not proof that any single policy file covers every workload safely. Policies need calibration on each workload.
 
-![suy-sideguy preview](assets/preview.png)
+![agent-warden preview](assets/preview.png)
 
 ---
 
@@ -89,8 +91,8 @@ Requires Python 3.9+.
 For development:
 
 ```bash
-git clone https://github.com/hermes-labs-ai/suy-sideguy.git
-cd suy-sideguy
+git clone https://github.com/hermes-labs-ai/agent-warden.git
+cd agent-warden
 pip install -e ".[dev]"
 ```
 
@@ -199,7 +201,7 @@ _Current status based on repository checks and CI configuration; not a formal se
 - ✅ Publish workflow (`.github/workflows/publish.yml`)
 - ✅ Security disclosure policy (`SECURITY.md`)
 
-If suy-sideguy saves you time, please [star the repo](https://github.com/hermes-labs-ai/suy-sideguy) — it helps others find it.
+If agent-warden saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-warden) — it helps others find it.
 
 ---
 
