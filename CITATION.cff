@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "suy-sideguy: runtime policy guard for autonomous AI agents"
-abstract: "suy-sideguy is a runtime policy guard for autonomous AI agents: it enforces kill/flag policy on a live agent process and produces a forensic report of what the agent actually did, judging the agent by its behavior rather than its configuration."
+title: "agent-warden: runtime policy guard for autonomous AI agents"
+abstract: "agent-warden is a runtime policy guard for autonomous AI agents: it enforces kill/flag policy on a live agent process and produces a forensic report of what the agent actually did, judging the agent by its behavior rather than its configuration."
 type: software
 authors:
   - family-names: "Bosch Rodriguez"
@@ -9,7 +9,7 @@ authors:
     orcid: "https://orcid.org/0009-0005-4896-1112"
     affiliation: "Hermes Labs"
 license: Apache-2.0
-repository-code: "https://github.com/hermes-labs-ai/suy-sideguy"
+repository-code: "https://github.com/hermes-labs-ai/agent-warden"
 version: "0.1.4"
 keywords:
   - "AI reliability"

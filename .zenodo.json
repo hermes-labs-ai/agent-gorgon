@@ -1,6 +1,6 @@
 {
-  "title": "suy-sideguy: runtime policy guard for autonomous AI agents",
-  "description": "suy-sideguy is a runtime policy guard for autonomous AI agents: it enforces kill/flag policy on a live agent process and produces a forensic report of what the agent actually did, judging the agent by its behavior rather than its configuration.",
+  "title": "agent-warden: runtime policy guard for autonomous AI agents",
+  "description": "agent-warden is a runtime policy guard for autonomous AI agents: it enforces kill/flag policy on a live agent process and produces a forensic report of what the agent actually did, judging the agent by its behavior rather than its configuration.",
   "upload_type": "software",
   "version": "0.1.4",
   "creators": [

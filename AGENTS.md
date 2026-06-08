@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`suy-sideguy` is a user-space runtime safety guard for agent processes.
+`agent-warden` is a user-space runtime safety guard for agent processes.
 
 ## Use it for
 
