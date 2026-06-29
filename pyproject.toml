@@ -34,7 +34,7 @@ dev = [
   "pytest>=8.4.2",
   "ruff>=0.15.15",
   "mypy>=1.19.1",
-  "types-PyYAML>=6.0.12.20250915",
+  "types-PyYAML>=6.0.12.20260518",
 ]
 
 [project.scripts]
