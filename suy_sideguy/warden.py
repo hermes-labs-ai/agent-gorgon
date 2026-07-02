@@ -765,11 +765,36 @@ class Warden:
             )
         return None
 
+    @staticmethod
+    def _forbidden_path_root(pattern: str) -> str:
+        """The concrete directory root of a forbidden_path glob. A CONTENTS glob
+        like `~/.ssh/**` protects everything *inside* ~/.ssh but not the ~/.ssh
+        directory itself — deleting the whole directory is at least as dangerous.
+        Strip the trailing glob segments to recover the protected root
+        (`~/.ssh/**` -> `~/.ssh`, `/data/*/secret` -> `/data`)."""
+        expanded = os.path.expandvars(os.path.expanduser(pattern.strip()))
+        kept: list[str] = []
+        for seg in expanded.split(os.sep):
+            if any(ch in seg for ch in "*?["):
+                break
+            kept.append(seg)
+        root = os.sep.join(kept)
+        return os.path.normpath(root) if root else ""
+
+    @staticmethod
+    def _path_covers(a: str, b: str) -> bool:
+        """True if a == b or a is an ancestor of b (a contains b)."""
+        if a == b:
+            return True
+        return b.startswith(a.rstrip(os.sep) + os.sep)
+
     def _is_protected_root(self, path: str) -> bool:
         """A recursive delete of this path is catastrophic and non-recoverable:
-        filesystem root, the user's home directory, or anything the scope
-        explicitly marks forbidden. Non-protected project paths (node_modules,
-        build/, dist, .venv, __pycache__) are NOT protected."""
+        filesystem root, the user's home directory, or a scope forbidden_path
+        (its contents, the dir itself, OR an ancestor that contains it — deleting
+        a directory that CONTAINS credentials is as dangerous as deleting them).
+        Non-protected project paths (node_modules, build/, dist, .venv,
+        __pycache__) are NOT protected."""
         raw = path.strip()
         if raw in ("~", "$HOME", "${HOME}"):
             return True
@@ -783,13 +808,22 @@ class Warden:
         home = os.path.normpath(os.path.expanduser("~"))
         if normed == home:
             return True
-        # Scope-declared forbidden paths (match relative + absolute forms)
-        candidates = {normed}
+
+        # Scope-declared forbidden paths. Kill if the target equals, is UNDER, or
+        # is an ANCESTOR of any forbidden root. Match both the given (possibly
+        # relative) form and its absolute form.
+        targets = {normed}
         if not os.path.isabs(normed):
-            candidates.add(os.path.abspath(normed))
-        for cand in candidates:
-            if self.scope._path_matches(cand, self.scope.forbidden_paths):
-                return True
+            targets.add(os.path.normpath(os.path.abspath(normed)))
+        for pat in self.scope.forbidden_paths:
+            root = self._forbidden_path_root(pat)
+            if not root or root == os.sep:
+                continue
+            for tgt in targets:
+                # target is under/equal-to the forbidden root (deleting content),
+                # or target is an ancestor of it (deleting the container).
+                if self._path_covers(root, tgt) or self._path_covers(tgt, root):
+                    return True
         return False
 
     def _rm_rf_protected_target(self, command: str) -> str | None:

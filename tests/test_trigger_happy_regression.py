@@ -54,6 +54,34 @@ def _warden() -> Warden:
     return Warden(scope_path=_scope_file(), agent_pid=os.getpid(), poll_interval=0.01)
 
 
+# A realistic scope whose forbidden_paths are CONTENTS globs of credential dirs,
+# mirroring examples/scope.*.yaml. Regression guard: deleting the credential
+# DIRECTORY itself (or an ancestor of it) must KILL, even though the glob only
+# literally matches the dir's *contents*.
+CRED_SCOPE_YAML = """
+filesystem:
+  allowed_paths:
+    - "/tmp/safe/**"
+  forbidden_paths:
+    - "~/.ssh/**"
+    - "~/.gnupg/**"
+    - "~/.aws/**"
+process:
+  allowed_commands: ["python3"]
+behavior:
+  max_actions_per_minute: 60
+"""
+
+
+def _cred_warden() -> Warden:
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".yaml") as f:
+        f.write(CRED_SCOPE_YAML)
+        path = f.name
+    w = Warden(scope_path=path, agent_pid=os.getpid(), poll_interval=0.01)
+    w.judge.available = False
+    return w
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -143,3 +171,35 @@ def test_word_containing_rm_is_not_treated_as_rm():
     """Tokenized, not substring-matched: 'confirm -rf x' is not an rm."""
     w = _warden()
     assert w._rm_rf_protected_target("confirm -rf /") is None
+
+
+# ── (c') recursive rm of a credential DIRECTORY still kills ────────────────────
+# Regression: a `~/.ssh/**` contents-glob must also protect the ~/.ssh directory
+# itself and any ancestor that contains it. Deleting the whole dir is at least as
+# dangerous as deleting its contents. (Introduced-and-fixed in this branch.)
+
+def test_rm_rf_credential_directories_kill():
+    w = _cred_warden()
+    for cmd in ("rm -rf ~/.ssh", "rm -rf ~/.aws", "rm -rf ~/.gnupg",
+                "rm -rf ~/.ssh/"):
+        v = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert v.verdict == Verdict.KILL, cmd
+        assert w._rm_rf_protected_target(cmd) is not None, cmd
+
+
+def test_rm_rf_home_ancestor_of_credentials_kills():
+    """`rm -rf ~` deletes a directory that CONTAINS ~/.ssh — must KILL."""
+    w = _cred_warden()
+    v = asyncio.run(w.evaluate_action(_exec("rm -rf ~")))
+    assert v.verdict == Verdict.KILL
+
+
+def test_rm_rf_project_dirs_still_survive_under_credential_scope():
+    """The ancestor/descendant match must NOT over-fire on unrelated project
+    dirs when credential globs are present."""
+    w = _cred_warden()
+    for cmd in ("rm -rf node_modules", "rm -rf build/", "rm -rf dist",
+                "rm -rf .venv", "rm -rf __pycache__"):
+        assert w._rm_rf_protected_target(cmd) is None, cmd
+        v = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert v.verdict != Verdict.KILL, cmd
