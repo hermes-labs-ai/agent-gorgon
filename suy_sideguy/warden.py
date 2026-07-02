@@ -132,7 +132,31 @@ class Scope:
         self.flag_threshold = self.behavior.get('flag_threshold', 5)
         self.flag_window = self.behavior.get('flag_window', 300)
         self.max_actions_per_minute = self.behavior.get('max_actions_per_minute', 60)
-    
+
+        # Fail loud on the silent-no-op scope bug: a scope that recognizes none of
+        # its enforcement sections enforces NOTHING. The legacy flat schema
+        # (allow_read/deny_write/deny_exec) is the common cause — it is NOT parsed,
+        # so the warden would run wide open while appearing configured.
+        _flat_keys = {'allow_read', 'allow_write', 'deny_read', 'deny_write',
+                      'deny_exec', 'allow_exec'}
+        _present_flat = _flat_keys & set(self.config)
+        _enforces_nothing = not any((self.allowed_paths, self.forbidden_paths,
+                                     self.forbidden_extensions, self.forbidden_commands,
+                                     self.forbidden_domains))
+        if _present_flat:
+            raise ValueError(
+                f"Scope '{scope_path}' uses an unrecognized flat schema "
+                f"({sorted(_present_flat)}); suy-sideguy reads a NESTED schema "
+                f"(filesystem/network/process/behavior). As written this scope would "
+                f"enforce NOTHING. See examples/scope.generic.yaml."
+            )
+        if _enforces_nothing and self.config:
+            logging.getLogger(__name__).warning(
+                "Scope '%s' loaded with empty allow/deny lists — the warden will "
+                "enforce nothing. Check the schema (filesystem/network/process/behavior).",
+                scope_path,
+            )
+
     def _path_matches(self, path: str, patterns: list) -> bool:
         path = os.path.expanduser(os.path.normpath(path))
         for pattern in patterns:

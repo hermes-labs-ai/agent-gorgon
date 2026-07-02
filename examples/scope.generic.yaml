@@ -1,21 +1,82 @@
-mode: audit
+# Generic starter scope for suy-sideguy.
+# NOTE: the Scope parser reads the NESTED schema below (filesystem/network/
+# process/behavior). A flat schema (allow_read/deny_write/deny_exec) is NOT
+# recognized and will load empty allowlists — the warden then enforces nothing.
 
-allow_read:
-  - "/workspace/**"
-  - "/tmp/**"
+agent:
+  name: "my-agent"
+  pid: null
 
-deny_write:
-  - "~/.ssh/**"
-  - "~/.gnupg/**"
-  - "~/.aws/**"
-  - "~/.config/gcloud/**"
-  - "~/.config/gh/**"
+filesystem:
+  allowed_paths:
+    - "~/agent-workspace/**"
+    - "/tmp/**"
+    - "/workspace/**"
+  forbidden_paths:
+    - "~/.ssh/**"
+    - "~/.gnupg/**"
+    - "~/.aws/**"
+    - "~/.config/gcloud/**"
+    - "~/.config/gh/**"
+  forbidden_extensions:
+    - ".pem"
+    - ".key"
+    - ".p12"
+    - ".keychain"
+    - ".keychain-db"
 
-deny_exec:
-  - "curl"
-  - "wget"
+network:
+  allowed_domains:
+    - "localhost"
+    - "127.0.0.1"
+    - "api.openai.com"
+    - "api.anthropic.com"
+    - "pypi.org"
+    - "files.pythonhosted.org"
+    - "registry.npmjs.org"
+    - "github.com"
+    - "api.github.com"
+  forbidden_domains:
+    - "pastebin.com"
+    - "hastebin.com"
+    - "transfer.sh"
+    - "file.io"
+    - "0x0.st"
+  allowed_ports:
+    - 80
+    - 443
+    - 53
 
-flag_threshold: 3
-flag_window: 60
-halt_threshold: 2
+process:
+  allowed_commands:
+    - "bash"
+    - "sh"
+    - "zsh"
+    - "python3"
+    - "python"
+    - "node"
+    - "npm"
+    - "npx"
+    - "git"
+    - "ls"
+    - "cat"
+    - "echo"
+    - "grep"
+    - "sed"
+    - "awk"
+    - "jq"
+    - "find"
+  forbidden_commands:
+    - "curl"
+    - "wget"
+    - "ssh"
+    - "scp"
+    - "rsync"
+    - "sudo"
+    - "pkill"
+    - "killall"
 
+behavior:
+  flag_threshold: 5
+  flag_window: 60
+  max_actions_per_minute: 60
