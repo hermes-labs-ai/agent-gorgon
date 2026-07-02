@@ -557,11 +557,139 @@ class Killswitch:
 class ProcessObserver:
     """Monitors an agent process for file, network, and subprocess activity."""
     
-    def __init__(self, agent_pid: int):
+    def __init__(self, agent_pid: int, scope: Scope | None = None):
         self.agent_pid = agent_pid
         self._known_files: set[tuple[int, str, str]] = set()
         self._known_connections: set[tuple[int, str, int]] = set()
         self._known_children: set[int] = set()
+
+        # ── Filesystem-diff state ──────────────────────────────────────────
+        # psutil.open_files() is blind to in-process deletes: os.remove() opens
+        # no fd, so a 50-file mass-delete is invisible on macOS. A poll-time
+        # set-diff of the scope's workspace dirs recovers create/delete events
+        # (path-set only — NO mtime/modify detection, which is spoofable/noisy).
+        self.scope = scope
+        self._scope_snapshot: set[str] | None = None  # None = not yet baselined
+        self._scope_roots: list[str] = self._compute_scope_roots(scope)
+        # Decouple the walk from the (0.5s) process poll so a large tree doesn't
+        # get re-walked every poll. Snapshot at most every ~1s (monotonic gate).
+        self._last_snapshot_ts: float = 0.0
+        self._snapshot_min_interval: float = 1.0
+        # Never walk an unbounded tree into memory: emit one FLAG and bail.
+        self._snapshot_file_cap: int = 50_000
+
+    @staticmethod
+    def _literal_dir_prefix(pattern: str) -> str:
+        """Literal directory prefix of a path glob — everything before the first
+        glob metachar (`*?[`). '/tmp/sb/**' -> '/tmp/sb'; '/a/b*/c' -> '/a'."""
+        expanded = os.path.expandvars(os.path.expanduser(pattern.strip()))
+        kept: list[str] = []
+        for seg in expanded.split(os.sep):
+            if any(ch in seg for ch in "*?["):
+                break
+            kept.append(seg)
+        root = os.sep.join(kept)
+        return os.path.normpath(root) if root else ""
+
+    def _compute_scope_roots(self, scope: Scope | None) -> list[str]:
+        """Concrete directory roots to snapshot: the literal prefix of each
+        allowed_paths glob. Skip the filesystem root ('/**' -> '/') — snapshotting
+        the whole filesystem every poll is never the intent and would melt.
+
+        De-dup by realpath so a symlink alias (e.g. macOS '/tmp' -> '/private/tmp'
+        listed as two allowed_paths) doesn't get walked twice, which would
+        double-count every FS event and effectively halve the HALT threshold. The
+        ORIGINAL (non-resolved) path string is kept for the walk so emitted paths
+        still match the un-resolved allowed_paths patterns in check_filesystem."""
+        if scope is None:
+            return []
+        roots: list[str] = []
+        seen_real: set[str] = set()
+        for pat in getattr(scope, "allowed_paths", []) or []:
+            root = self._literal_dir_prefix(pat)
+            if not root or root == os.sep:
+                continue
+            try:
+                real = os.path.realpath(root)
+            except OSError:
+                real = root
+            if real in seen_real or root in roots:
+                continue
+            seen_real.add(real)
+            roots.append(root)
+        return roots
+
+    def _snapshot_scope_files(self) -> tuple[set[str], bool]:
+        """Walk the scope roots and return (set-of-file-paths, capped?).
+        try/except per directory so one unreadable/vanished dir cannot crash the
+        warden (fail-open — the 'don't crash the warden' constraint). Bails with
+        capped=True once past the file cap instead of exhausting memory."""
+        found: set[str] = set()
+        stack: list[str] = list(self._scope_roots)
+        seen_dirs: set[str] = set()
+        while stack:
+            d = stack.pop()
+            if d in seen_dirs:
+                continue
+            seen_dirs.add(d)
+            try:
+                with os.scandir(d) as it:
+                    for entry in it:
+                        try:
+                            # follow_symlinks=False avoids symlink cycles and
+                            # double-walking the /tmp -> /private/tmp alias.
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            else:
+                                found.add(entry.path)
+                                if len(found) > self._snapshot_file_cap:
+                                    return found, True
+                        except OSError:
+                            continue  # per-entry stat failure → skip, keep going
+            except OSError:
+                continue  # per-dir failure (missing/permission) → fail-open
+        return found, False
+
+    def _diff_scope_filesystem(self, now: str, actions: list[AgentAction]) -> None:
+        """Snapshot the scope roots and emit synthetic create/delete actions from
+        the set-diff vs the previous snapshot. Feeds the existing behavioral rules
+        (notably 3-deletes-in-10s -> HALT). The first (baseline) poll emits
+        nothing. Fully fail-open."""
+        if not self._scope_roots:
+            return
+        # Cadence gate: bound walk cost independently of the process poll rate.
+        mono = time.time()
+        if mono - self._last_snapshot_ts < self._snapshot_min_interval:
+            return
+        self._last_snapshot_ts = mono
+
+        current, capped = self._snapshot_scope_files()
+        if capped:
+            # One FLAG (UNKNOWN action -> FLAG in the rule engine); do NOT diff a
+            # truncated set against a full baseline (would emit spurious deletes).
+            actions.append(AgentAction(
+                timestamp=now, action_type=ActionType.UNKNOWN,
+                target="scope too large to snapshot",
+                details={"detected_by": "scope_diff",
+                         "file_cap": self._snapshot_file_cap},
+                source_pid=self.agent_pid,
+            ))
+            return
+
+        if self._scope_snapshot is not None:  # skip the baseline poll
+            for path in self._scope_snapshot - current:
+                actions.append(AgentAction(
+                    timestamp=now, action_type=ActionType.FILE_DELETE,
+                    target=path, details={"detected_by": "scope_diff"},
+                    source_pid=self.agent_pid,
+                ))
+            for path in current - self._scope_snapshot:
+                actions.append(AgentAction(
+                    timestamp=now, action_type=ActionType.FILE_WRITE,
+                    target=path, details={"detected_by": "scope_diff"},
+                    source_pid=self.agent_pid,
+                ))
+        self._scope_snapshot = current
 
     def get_agent_pids(self) -> list[int]:
         pids = [self.agent_pid]
@@ -655,9 +783,17 @@ class ProcessObserver:
                     
             except psutil.NoSuchProcess:
                 continue
-        
+
+        # ── Filesystem diff ──
+        # Recovers in-process create/delete events that psutil.open_files() cannot
+        # see (os.remove() opens no fd). Wrapped so it can never crash the loop.
+        try:
+            self._diff_scope_filesystem(now, actions)
+        except Exception:  # noqa: BLE001 — fail-open: never take down the warden
+            pass
+
         return actions
-    
+
     def is_agent_alive(self) -> bool:
         try:
             proc = psutil.Process(self.agent_pid)
@@ -679,7 +815,7 @@ class Warden:
                  log_dir: str | None = None):
 
         self.scope = Scope(scope_path)
-        self.observer = ProcessObserver(agent_pid)
+        self.observer = ProcessObserver(agent_pid, scope=self.scope)
         self.judge = LLMJudge(model=model)
         self.killswitch = Killswitch(agent_pid)
         self.logger = IncidentLogger(log_dir=log_dir)
@@ -963,15 +1099,38 @@ class Warden:
     async def evaluate_action(self, action: AgentAction) -> WardenVerdict:
         """Rule engine first, then LLM for ambiguous cases."""
 
-        # Hardcoded KILL checks (highest priority)
-        kill_verdict = self._check_hardcoded_kill(action)
-        if kill_verdict is not None:
-            return kill_verdict
+        # A filesystem-diff action cannot be attributed to a specific pid — the
+        # diff only sees that a path appeared/vanished, not who did it. So a
+        # non-agent writer inside the scope must NEVER cause an instant SIGKILL.
+        # Skip the hardcoded-KILL layer for these; they escalate only via the
+        # behavioral rules below (e.g. 3-deletes-in-10s -> HALT).
+        is_diff = action.details.get("detected_by") == "scope_diff"
 
-        # Behavioral HALT checks
+        # Hardcoded KILL checks (highest priority) — attributed actions only.
+        if not is_diff:
+            kill_verdict = self._check_hardcoded_kill(action)
+            if kill_verdict is not None:
+                return kill_verdict
+
+        # Behavioral HALT checks (this is where diff-detected mass-deletes escalate)
         halt_verdict = self._check_halt_triggers(action)
         if halt_verdict is not None:
             return halt_verdict
+
+        # Unattributed diff action that tripped no behavioral rule: run the scope
+        # check but downgrade any KILL to HALT (never instant-SIGKILL on a diff).
+        if is_diff:
+            v, reason = self.scope.check_filesystem(action.target)
+            if v == Verdict.KILL:
+                return WardenVerdict(
+                    verdict=Verdict.HALT,
+                    reason=f"Diff-detected protected-path change "
+                           f"(unattributed): {action.target}",
+                    action=action, evaluator="rule_engine",
+                )
+            return WardenVerdict(
+                verdict=v, reason=reason, action=action, evaluator="rule_engine"
+            )
 
         if action.action_type in (ActionType.FILE_READ, ActionType.FILE_WRITE,
                                    ActionType.FILE_DELETE):
