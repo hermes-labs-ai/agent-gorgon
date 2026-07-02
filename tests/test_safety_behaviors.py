@@ -136,14 +136,17 @@ def test_incident_report_schema_core_fields(tmp_path):
     assert report["kill_trigger"]["action_type"] == ActionType.FILE_WRITE.value
 
 
-def test_rate_limit_kill_trigger_when_exceeded(monkeypatch):
+def test_rate_limit_flags_not_kills_when_exceeded(monkeypatch):
+    # A rate spike is a signal, not proof of harm: FLAG (record + raise posture),
+    # never SIGKILL. Ordinary builds routinely open >max_actions_per_minute files.
     w = _warden()
     now = 100.0
     monkeypatch.setattr("time.time", lambda: now)
     w.action_timestamps = [now - 1] * (w.scope.max_actions_per_minute + 1)
     v = w._check_rate_limit()
     assert v is not None
-    assert v.verdict == Verdict.KILL
+    assert v.verdict == Verdict.FLAG
+    assert v.verdict != Verdict.KILL
 
 
 def test_llm_unavailable_for_unknown_command_flags():

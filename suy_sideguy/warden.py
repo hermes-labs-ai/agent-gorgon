@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import time
+import shlex
 import fnmatch
 import logging
 import argparse
@@ -731,9 +732,12 @@ class Warden:
                 action_type=ActionType.UNKNOWN, target="rate_limit_exceeded",
                 details={"actions_per_minute": len(self.action_timestamps)}
             )
+            # A rate spike is a signal, not proof of harm. Ordinary developer
+            # work (compile/test/install) routinely opens >60 files/min. Downgrade
+            # to FLAG (record + raise posture); never SIGKILL on rate alone.
             return WardenVerdict(
-                verdict=Verdict.KILL,
-                reason=f"Rate limit: {len(self.action_timestamps)} actions/min",
+                verdict=Verdict.FLAG,
+                reason=f"Rate limit exceeded: {len(self.action_timestamps)} actions/min",
                 action=action, evaluator="rule_engine"
             )
         return None
@@ -759,6 +763,68 @@ class Warden:
                        f"{self.scope.flag_window}s",
                 action=action, evaluator="rule_engine"
             )
+        return None
+
+    def _is_protected_root(self, path: str) -> bool:
+        """A recursive delete of this path is catastrophic and non-recoverable:
+        filesystem root, the user's home directory, or anything the scope
+        explicitly marks forbidden. Non-protected project paths (node_modules,
+        build/, dist, .venv, __pycache__) are NOT protected."""
+        raw = path.strip()
+        if raw in ("~", "$HOME", "${HOME}"):
+            return True
+        expanded = os.path.expandvars(os.path.expanduser(raw))
+        normed = os.path.normpath(expanded)
+
+        # Filesystem root
+        if normed == os.sep:
+            return True
+        # Home directory itself (but NOT subdirectories of it)
+        home = os.path.normpath(os.path.expanduser("~"))
+        if normed == home:
+            return True
+        # Scope-declared forbidden paths (match relative + absolute forms)
+        candidates = {normed}
+        if not os.path.isabs(normed):
+            candidates.add(os.path.abspath(normed))
+        for cand in candidates:
+            if self.scope._path_matches(cand, self.scope.forbidden_paths):
+                return True
+        return False
+
+    def _rm_rf_protected_target(self, command: str) -> str | None:
+        """If `command` is a recursive rm whose target is a protected root,
+        return that target (→ KILL). Otherwise None. Routine recursive deletes
+        of project directories are intentionally allowed to fall through to a
+        FLAG at most — they are not proof of harm."""
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            tokens = command.split()
+        if not tokens or os.path.basename(tokens[0]) != "rm":
+            return None
+
+        recursive = False
+        path_args = []
+        for tok in tokens[1:]:
+            if tok == "--":
+                continue
+            if tok.startswith("--"):
+                if tok == "--recursive":
+                    recursive = True
+                continue
+            if tok.startswith("-") and len(tok) > 1:
+                # short-flag cluster, e.g. -rf / -fr / -Rf / -r
+                if "r" in tok[1:] or "R" in tok[1:]:
+                    recursive = True
+                continue
+            path_args.append(tok)
+
+        if not recursive:
+            return None
+        for p in path_args:
+            if self._is_protected_root(p):
+                return p
         return None
 
     def _check_hardcoded_kill(self, action: AgentAction) -> WardenVerdict | None:
@@ -792,21 +858,19 @@ class Warden:
                     action=action, evaluator="rule_engine"
                 )
 
-        # rm -rf on non-tmp paths
+        # rm -rf: KILL only when the recursive delete targets a PROTECTED root
+        # (filesystem root, home, or a scope forbidden_path). A recursive rm of a
+        # non-protected project path (node_modules, build/, dist, .venv,
+        # __pycache__) is routine developer cleanup — it falls through to at most
+        # a FLAG, never an instant SIGKILL.
         if action.action_type in (ActionType.PROCESS_EXEC, ActionType.PROCESS_SPAWN):
-            cmd = action.target.strip()
-            if "rm " in cmd and ("-rf" in cmd or "-r" in cmd):
-                # Extract the path argument (last token as heuristic)
-                parts = cmd.split()
-                path_args = [p for p in parts[1:] if not p.startswith("-")]
-                for p in path_args:
-                    expanded = os.path.expanduser(os.path.abspath(p))
-                    if not expanded.startswith("/tmp"):
-                        return WardenVerdict(
-                            verdict=Verdict.KILL,
-                            reason=f"rm -rf on non-tmp path: {p}",
-                            action=action, evaluator="rule_engine"
-                        )
+            protected = self._rm_rf_protected_target(action.target)
+            if protected is not None:
+                return WardenVerdict(
+                    verdict=Verdict.KILL,
+                    reason=f"rm -rf targeting protected root: {protected}",
+                    action=action, evaluator="rule_engine"
+                )
 
         return None
 
@@ -956,11 +1020,20 @@ class Warden:
                 # Check behavioral triggers
                 for check in (self._check_rate_limit, self._check_flag_accumulation):
                     v = check()
-                    if v:
-                        self.all_verdicts.append(v)
-                        self.logger.log_action(v)
+                    if not v:
+                        continue
+                    self.all_verdicts.append(v)
+                    self.logger.log_action(v)
+                    if v.verdict == Verdict.KILL:
                         await self.execute_kill(v)
                         break
+                    # Non-kill behavioral signal (e.g. rate spike): record + raise
+                    # posture. Never SIGKILL on a rate spike alone.
+                    self.flag_timestamps.append(time.time())
+                    self.log.warning(
+                        f"⚠️  FLAG [{len(self.flag_timestamps)}/"
+                        f"{self.scope.flag_threshold}]: {v.reason}"
+                    )
                 
                 if self.killed:
                     break
