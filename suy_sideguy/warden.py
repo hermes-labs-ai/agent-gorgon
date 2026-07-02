@@ -473,7 +473,80 @@ class IncidentLogger:
         
         with open(report_path, 'w') as f:
             json.dump(report, f, indent=2)
-        
+
+        return str(report_path)
+
+    def generate_halt_report(self, halt_verdict: WardenVerdict,
+                             all_verdicts: list, suspend_result: dict) -> str:
+        """Forensic record for a HALT that SIGSTOPed the agent. Unlike the KILL
+        incident report this documents a REVERSIBLE control: the process is
+        stopped, not terminated, pending human SIGCONT or escalation to KILL."""
+        report_path = (
+            self.incident_dir / f"halt_{self.session_id}_{int(time.time())}.json"
+        )
+
+        timeline = []
+        for v in all_verdicts:
+            timeline.append({
+                "timestamp": v.timestamp,
+                "action_type": v.action.action_type.value,
+                "target": v.action.target,
+                "verdict": v.verdict.value,
+                "reason": v.reason,
+                "evaluator": v.evaluator,
+            })
+
+        report = {
+            "halt_report": {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generator": "Suy Sideguy v0.1.2",
+                "session_id": self.session_id,
+                "status": "AGENT_SUSPENDED",
+            },
+            "halt_trigger": {
+                "timestamp": halt_verdict.timestamp,
+                "action_type": halt_verdict.action.action_type.value,
+                "target": halt_verdict.action.target,
+                "details": halt_verdict.action.details,
+                "reason": halt_verdict.reason,
+                "evaluator": halt_verdict.evaluator,
+            },
+            "control_action": {
+                "method": "SIGSTOP",
+                "reversible": True,
+                "suspended": suspend_result.get("suspended", False),
+                "pids_suspended": suspend_result.get("pids_suspended", []),
+                "errors": suspend_result.get("errors", []),
+                "resume_hint": (
+                    "kill -CONT <pid> to resume, or escalate to SIGKILL"
+                ),
+            },
+            "session_summary": {
+                "total_actions_observed": len(all_verdicts),
+                "safe_actions": sum(1 for v in all_verdicts if v.verdict == Verdict.SAFE),
+                "flagged_actions": sum(1 for v in all_verdicts if v.verdict == Verdict.FLAG),
+                "halt_triggers": sum(1 for v in all_verdicts if v.verdict == Verdict.HALT),
+                "kill_triggers": sum(1 for v in all_verdicts if v.verdict == Verdict.KILL),
+            },
+            "action_timeline": timeline,
+            "liability_statement": {
+                "notice": (
+                    "This report was generated automatically by Suy Sideguy, "
+                    "an autonomous AI agent security monitor. The monitored agent "
+                    "was SUSPENDED (SIGSTOP) — a reversible pause — due to a "
+                    "detected behavioral HALT condition. The process was not "
+                    "terminated; a human or policy may resume it (SIGCONT) or "
+                    "escalate to termination (SIGKILL) after review."
+                ),
+                "agent_process_terminated": False,
+                "control_method": "SIGSTOP",
+                "reversible": True,
+            },
+        }
+
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+
         return str(report_path)
 
 
@@ -521,7 +594,47 @@ class Killswitch:
             errors.append(f"Killswitch error: {e}")
 
         return {"killed": killed, "pids_terminated": pids_terminated, "errors": errors}
-    
+
+    def suspend_agent(self) -> dict:
+        """SIGSTOP the agent process tree — a *reversible* pause (not SIGKILL).
+        The stopped process can be resumed with SIGCONT or escalated to SIGKILL
+        by a human/policy. Parent is stopped first so it cannot spawn new
+        children mid-suspend; already-enumerated children are stopped next.
+        Fail-open per child so one gone/denied pid cannot abort the pause."""
+        suspended = False
+        pids_suspended: list[int] = []
+        errors: list[str] = []
+
+        try:
+            parent = psutil.Process(self.agent_pid)
+            children = parent.children(recursive=True)
+
+            try:
+                parent.suspend()
+                pids_suspended.append(self.agent_pid)
+                suspended = True
+            except psutil.NoSuchProcess:
+                pass
+            except Exception as e:
+                errors.append(f"Agent {self.agent_pid}: {e}")
+
+            for child in children:
+                try:
+                    child.suspend()
+                    pids_suspended.append(child.pid)
+                except psutil.NoSuchProcess:
+                    pass
+                except Exception as e:
+                    errors.append(f"Child {child.pid}: {e}")
+
+        except psutil.NoSuchProcess:
+            errors.append(f"PID {self.agent_pid} already gone")
+        except Exception as e:
+            errors.append(f"Suspend error: {e}")
+
+        return {"suspended": suspended, "pids_suspended": pids_suspended,
+                "errors": errors}
+
     def attempt_rollback(self, action: AgentAction) -> dict:
         rollback = {
             "attempted": True, "success": False,
@@ -831,7 +944,18 @@ class Warden:
         self.start_time = time.time()
         self.running = False
         self.killed = False
-        
+        # HALT gives a *reversible* pause (SIGSTOP). Signal the tree ONCE, then
+        # only log on later HALTs — no per-poll signal spam.
+        self.suspended = False
+        # Per-pid recent credential-read timestamps; arms the deterministic
+        # credential-read-then-network-out exfil KILL rule (defense-in-depth).
+        self.credential_reads: dict[int | None, list[float]] = {}
+        # Window (s) within which a credential read followed by a network-out is
+        # treated as exfil. Short by design; overridable via scope behavior.
+        self.cred_exfil_window = float(
+            self.scope.behavior.get("credential_exfil_window", 15)
+        )
+
         self.scope_summary = self._build_scope_summary()
         
         # Non-obvious log location and process identity
@@ -997,6 +1121,84 @@ class Warden:
                 return p
         return None
 
+    # Credential-material detectors for the exfil rule. Basename globs catch
+    # key/cert material; path substrings catch well-known secret stores.
+    _CRED_BASENAME_GLOBS = (
+        "*id_rsa*", "*id_ed25519*", "*id_ecdsa*", "*id_dsa*",
+        "*.pem", "*.key", "*.p12", "*.pfx", "*.ppk",
+        "credentials", "*.credentials", "*_credentials",
+    )
+    _CRED_PATH_SUBSTRINGS = (
+        "/.aws/credentials", "/.aws/config",
+        "/.ssh/", "/.gnupg/", "/.config/gcloud/",
+    )
+
+    def _is_credential_target(self, path: str) -> bool:
+        """True if *path* names credential material: a scope forbidden_path, a
+        secret-looking basename (id_rsa / *.pem / …), or a well-known secret
+        store (~/.aws/credentials, ~/.ssh/…). This only ARMS the exfil rule — it
+        does not by itself KILL."""
+        if not path:
+            return False
+        expanded = os.path.expanduser(os.path.expandvars(path))
+        norm = os.path.normpath(expanded)
+        base = os.path.basename(norm)
+        for g in self._CRED_BASENAME_GLOBS:
+            if fnmatch.fnmatch(base, g):
+                return True
+        low = norm.replace(os.sep, "/").lower()
+        for sub in self._CRED_PATH_SUBSTRINGS:
+            if sub in low:
+                return True
+        # Scope-declared forbidden paths are secret material by declaration.
+        try:
+            if self.scope._path_matches(norm, self.scope.forbidden_paths):
+                return True
+        except Exception:  # noqa: BLE001 — never crash eval on a match error
+            pass
+        return False
+
+    def _track_and_check_exfil(self, action: AgentAction) -> WardenVerdict | None:
+        """Record credential reads per pid; on a NETWORK_OUT that FOLLOWS a
+        credential read within ``cred_exfil_window`` seconds, return KILL — the
+        real exfil signature (read a secret, then ship it out).
+
+        A bare network-out with NO preceding credential read returns None, so
+        benign curl/pip stay HALT/FLAG per the existing rules. Tree-scoped: the
+        warden monitors ONE agent tree, so a read on any pid paired with a
+        network-out on any pid is a legitimate correlation (covers the
+        parent-reads / child-curls exfil shape)."""
+        now = time.time()
+        window = self.cred_exfil_window
+
+        # Prune every tracked pid's history to the window; drop empties.
+        for pid in list(self.credential_reads):
+            fresh = [t for t in self.credential_reads[pid] if now - t <= window]
+            if fresh:
+                self.credential_reads[pid] = fresh
+            else:
+                del self.credential_reads[pid]
+
+        if (action.action_type == ActionType.FILE_READ
+                and self._is_credential_target(action.target)):
+            self.credential_reads.setdefault(action.source_pid, []).append(now)
+            return None
+
+        if action.action_type == ActionType.NETWORK_OUT and self.credential_reads:
+            last_read = max(
+                t for reads in self.credential_reads.values() for t in reads
+            )
+            return WardenVerdict(
+                verdict=Verdict.KILL,
+                reason=(
+                    f"Credential-exfil signature: credential read "
+                    f"{now - last_read:.1f}s before network egress to "
+                    f"{action.target}"
+                ),
+                action=action, evaluator="rule_engine",
+            )
+        return None
+
     def _check_hardcoded_kill(self, action: AgentAction) -> WardenVerdict | None:
         """Hardcoded KILL rules for critical threats."""
         target = action.target
@@ -1108,6 +1310,14 @@ class Warden:
 
         # Hardcoded KILL checks (highest priority) — attributed actions only.
         if not is_diff:
+            # Defense-in-depth: record credential reads + fire the deterministic
+            # credential-read-then-network-out exfil KILL. Runs first so a
+            # network-out that follows a credential touch is caught BEFORE the
+            # (benign) localhost / allowed-domain network check would clear it.
+            exfil_verdict = self._track_and_check_exfil(action)
+            if exfil_verdict is not None:
+                return exfil_verdict
+
             kill_verdict = self._check_hardcoded_kill(action)
             if kill_verdict is not None:
                 return kill_verdict
@@ -1162,6 +1372,39 @@ class Warden:
             action=action, evaluator="rule_engine"
         )
     
+    async def execute_halt(self, verdict: WardenVerdict):
+        """Give a HALT verdict teeth: SIGSTOP the agent tree — a *reversible*
+        pause — then log + write the forensic halt report. Idempotent: the tree
+        is signalled ONCE (guarded by self.suspended); later HALTs only log, so
+        we never re-signal every poll. The warden keeps monitoring afterwards so
+        it can still escalate to KILL (e.g. exfil) while the agent is held."""
+        if self.suspended:
+            self.log.warning(
+                f"🟡 HALT (agent already suspended, no re-signal): {verdict.reason}"
+            )
+            return
+
+        self.log.warning(f"🟡 HALT: {verdict.reason}")
+        self.log.warning(
+            f"   Action: {verdict.action.action_type.value} -> "
+            f"{verdict.action.target}"
+        )
+        suspend_result = self.killswitch.suspend_agent()
+        self.suspended = True
+        self.log.critical(
+            f"   ⏸️  Agent SIGSTOPed (reversible pause): "
+            f"pids={suspend_result['pids_suspended']} "
+            f"suspended={suspend_result['suspended']} "
+            f"errors={suspend_result['errors']}"
+        )
+        try:
+            report_path = self.logger.generate_halt_report(
+                verdict, self.all_verdicts, suspend_result
+            )
+            self.log.warning(f"   📋 Halt report: {report_path}")
+        except Exception as e:  # noqa: BLE001 — never crash the loop on reporting
+            self.log.error(f"   Halt report failed: {e}")
+
     async def execute_kill(self, verdict: WardenVerdict):
         """Full kill sequence: terminate + rollback + forensic report."""
         
@@ -1248,10 +1491,10 @@ class Warden:
                             f"{action.action_type.value}: {action.target[:60]}"
                         )
                     elif verdict.verdict == Verdict.HALT:
-                        self.log.warning(
-                            f"🟡 HALT [{verdict.timestamp}]: {verdict.reason} "
-                            f"| {action.action_type.value}: {action.target[:60]}"
-                        )
+                        # HALT now has teeth: SIGSTOP the agent (reversible).
+                        # Idempotent inside execute_halt. Keep monitoring after
+                        # — a held agent can still escalate to KILL.
+                        await self.execute_halt(verdict)
                     elif verdict.verdict == Verdict.KILL:
                         await self.execute_kill(verdict)
                         break
