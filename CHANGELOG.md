@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **HALT now enforces** — a HALT verdict SIGSTOPs the agent process tree (reversible pause, signalled once, forensic halt report written). Previously HALT only logged and the agent kept running, contradicting the documented "freeze + alert" behavior.
+- **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
+- **Credential-read then network-out exfil pattern KILLs deterministically**; a bare network-out without a preceding credential read stays HALT/FLAG.
+- **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind to them).
+- **No more SIGKILL on benign dev work** — rate-limit breaches and project-dir recursive deletes downgrade to FLAG; `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare directory (contents-glob regression closed).
+- **Shipped generic scope enforced nothing** — `examples/scope.generic.yaml` used a flat schema the parser silently read as empty allowlists; rewritten nested, and `Scope` now fails loud on legacy flat-schema keys.
+
+### Added
+- 49 regression tests covering the above (test suite: 41 to 90).
+
 ## [0.1.3] - 2026-03-08
 
 ### Added

@@ -5,7 +5,7 @@ Runtime safety guard for autonomous AI agents. Monitors process/file/network beh
 ## Commands
 
 - `pip install -e ".[dev]"` -- Install with dev deps
-- `pytest` -- Run all 15 tests
+- `pytest` -- Run all 90 tests
 - `pytest tests/test_scope.py -v` -- Single test module
 - `ruff check suy_sideguy/` -- Lint
 - `mypy suy_sideguy/` -- Type check
