@@ -225,3 +225,9 @@ Also see:
 - `CODE_OF_CONDUCT.md`
 - Audit checklist: `docs/AUDIT_CHECKLIST.md`
 - Layered plan: `docs/IMPLEMENTATION_PLAN_LAYERED.md`
+
+## Related Hermes Labs tools
+
+- [te-drift-detector](https://github.com/hermes-labs-ai/te-drift-detector) — zero-LLM drift detection for agent sessions (catch it before the warden has to act)
+- [hermes-blind](https://github.com/hermes-labs-ai/hermes-blind) — recovery scaffold that bends a drifted session back
+- [lintlang](https://github.com/hermes-labs-ai/lintlang) — static linter for agent configs and prompts (catch it before runtime)
