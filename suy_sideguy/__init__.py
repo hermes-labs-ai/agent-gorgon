@@ -1,5 +1,7 @@
 """suy_sideguy package."""
 
+__version__ = "0.1.4"
+
 from . import cli, enforcement, forensic_report, models, observer, policy, scope, warden
 
 __all__ = [

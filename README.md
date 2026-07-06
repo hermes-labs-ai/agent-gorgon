@@ -59,7 +59,7 @@ Use `agent-warden` when you run autonomous or semi-autonomous agents and need *u
 - Not a substitute for input-side prompt-injection defenses.
 - Not proof that any single policy file covers every workload safely. Policies need calibration on each workload.
 
-![agent-warden preview](assets/preview.png)
+![agent-warden preview](https://raw.githubusercontent.com/hermes-labs-ai/agent-warden/main/assets/preview.png)
 
 ---
 

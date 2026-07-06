@@ -13,6 +13,7 @@ authors = [{ name = "Rolando Bosch" }]
 keywords = ["runtime-agent-guard", "ai-agent-security", "runtime-monitoring", "incident-response", "policy-enforcement", "forensics"]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -42,11 +43,11 @@ suy-warden = "suy_sideguy.warden:entrypoint"
 suy-forensic-report = "suy_sideguy.forensic_report:main"
 
 [project.urls]
-Homepage = "https://github.com/hermes-labs-ai/suy-sideguy"
-Repository = "https://github.com/hermes-labs-ai/suy-sideguy"
-Documentation = "https://github.com/hermes-labs-ai/suy-sideguy#readme"
-Issues = "https://github.com/hermes-labs-ai/suy-sideguy/issues"
-Changelog = "https://github.com/hermes-labs-ai/suy-sideguy/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hermes-labs-ai/agent-warden"
+Repository = "https://github.com/hermes-labs-ai/agent-warden"
+Documentation = "https://github.com/hermes-labs-ai/agent-warden#readme"
+Issues = "https://github.com/hermes-labs-ai/agent-warden/issues"
+Changelog = "https://github.com/hermes-labs-ai/agent-warden/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["suy_sideguy"]
