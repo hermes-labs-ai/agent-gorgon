@@ -8,7 +8,6 @@ agent-warden is a runtime policy guard for autonomous AI agents that enforces ki
 [![Python](https://img.shields.io/pypi/pyversions/suy-sideguy)](https://pypi.org/project/suy-sideguy/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml)
-[![Hermes Seal](https://img.shields.io/badge/hermes--seal-manifest%20staged-blue)](https://github.com/hermes-labs-ai/agent-warden)
 
 If your agent passed every static check and then deleted 40 files in 8 seconds, this is the watcher that would have stopped it at file 4. The static gate was never going to catch a runtime decision.
 
