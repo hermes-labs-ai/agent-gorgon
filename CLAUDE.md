@@ -1,4 +1,4 @@
-# Suy Sideguy
+# agent-warden (PyPI package: suy-sideguy)
 
 Runtime safety guard for autonomous AI agents. Monitors process/file/network behavior, applies policy rules, terminates violations.
 
@@ -27,7 +27,7 @@ suy_sideguy/
   cli.py             # Argument parsing
 ```
 
-5-stage pipeline: Observer → Rule Engine (instant scope checks) → LLM Judge (Ollama, ambiguous cases) → Killswitch (SIGKILL) → Responder (forensic report).
+Enforcement pipeline: Observer → Rule Engine (deterministic scope checks — the SOLE authority for KILL and HALT) → Killswitch (SIGKILL / reversible SIGSTOP) → Responder (forensic report). The LLM Judge (Ollama) is an advisory-only sidecar off the enforcement hot path: its verdicts are capped to SAFE/FLAG and it can never kill or suspend.
 
 ## Key Constraints
 
