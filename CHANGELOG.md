@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.4] - 2026-07-06
+## [0.1.5] - 2026-07-06
 
 ### Fixed
 - **HALT now enforces** — a HALT verdict SIGSTOPs the agent process tree (reversible pause, signalled once, forensic halt report written). Previously HALT only logged and the agent kept running, contradicting the documented "freeze + alert" behavior.
@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - 49 regression tests covering the above (test suite: 41 to 90).
+
+## [0.1.4] - 2026-05-30
+
+### Added
+- DOI-readiness metadata (CITATION.cff, .zenodo.json). Tagged `v0.1.4` on GitHub; not published to PyPI.
 
 ## [0.1.3] - 2026-03-08
 

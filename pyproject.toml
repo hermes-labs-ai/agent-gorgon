@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "suy-sideguy"
-version = "0.1.4"
+version = "0.1.5"
 description = "Runtime policy guard for autonomous AI agents with user-space enforcement and forensic reporting."
 readme = "README.md"
 requires-python = ">=3.9"
