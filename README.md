@@ -41,7 +41,7 @@ Live output while the agent runs:
 ```text
 target=12345 verdict=SAFE action=continue
 target=12345 verdict=FLAG action=log_continue  reason=high_fd_count
-target=12345 verdict=HALT action=freeze        reason=mass_deletion_3_in_10s
+target=12345 verdict=HALT action=suspend       reason=mass_deletion_3_in_10s
 ```
 
 After a run:
@@ -69,7 +69,7 @@ Use `agent-warden` when you run autonomous or semi-autonomous agents and need *u
 ### ✅ What it does
 - Watches process, file, and network behavior for an agent process
 - Applies policy rules (optionally with a local LLM judge via Ollama)
-- **HALT** suspicious actions (freeze + alert) before they escalate
+- **HALT** suspicious actions (SIGSTOP the agent, a reversible pause, plus alert) before they escalate
 - **KILL** severe violations with `SIGKILL` when policy requires it
 - Stores evidence and can generate incident-ready forensic reports
 
@@ -161,10 +161,10 @@ Tip: treat these as security artifacts. Protect access and define retention/rota
 |---------|---------|----------|
 | `SAFE` | Action is within policy | Continue |
 | `FLAG` | Suspicious, below threshold | Log, continue |
-| `HALT` | Dangerous pattern detected | Freeze, alert operator |
+| `HALT` | Dangerous pattern detected | Suspend agent (SIGSTOP, reversible), alert operator |
 | `KILL` | Critical violation | `SIGKILL` immediately |
 
-### HALT triggers (freeze + alert, agent is not killed)
+### HALT triggers (SIGSTOP the agent, a reversible pause, plus alert; agent is not killed)
 - **3+ file deletions in 10 seconds** — mass deletion pattern
 - **curl or wget spawned** — unexpected outbound data transfer
 - **50+ network calls in 60 seconds** — bulk messaging / API spam
