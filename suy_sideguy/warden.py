@@ -511,11 +511,13 @@ class IncidentLogger:
 
     def generate_halt_report(self, halt_verdict: WardenVerdict,
                              all_verdicts: list, suspend_result: dict) -> str:
-        """Forensic record for a HALT that SIGSTOPed the agent. Unlike the KILL
-        incident report this documents a REVERSIBLE control: the process is
-        stopped, not terminated, pending human SIGCONT or escalation to KILL."""
+        """Forensic record for a HALT suspension attempt."""
         report_path = (
             self.incident_dir / f"halt_{self.session_id}_{int(time.time())}.json"
+        )
+        suspended = bool(
+            suspend_result.get("suspended")
+            and suspend_result.get("pids_suspended")
         )
 
         timeline = []
@@ -534,7 +536,7 @@ class IncidentLogger:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "generator": "Suy Sideguy v0.1.2",
                 "session_id": self.session_id,
-                "status": "AGENT_SUSPENDED",
+                "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
             "halt_trigger": {
                 "timestamp": halt_verdict.timestamp,
@@ -547,7 +549,7 @@ class IncidentLogger:
             "control_action": {
                 "method": "SIGSTOP",
                 "reversible": True,
-                "suspended": suspend_result.get("suspended", False),
+                "suspended": suspended,
                 "pids_suspended": suspend_result.get("pids_suspended", []),
                 "errors": suspend_result.get("errors", []),
                 "resume_hint": (
@@ -565,13 +567,17 @@ class IncidentLogger:
             "liability_statement": {
                 "notice": (
                     "This report was generated automatically by Suy Sideguy, "
-                    "an autonomous AI agent security monitor. The monitored agent "
-                    "was SUSPENDED (SIGSTOP) — a reversible pause — due to a "
-                    "detected behavioral HALT condition. The process was not "
-                    "terminated; a human or policy may resume it (SIGCONT) or "
-                    "escalate to termination (SIGKILL) after review."
+                    "an autonomous AI agent security monitor. "
+                    + (
+                        "The monitored agent was SUSPENDED (SIGSTOP) — a reversible "
+                        "pause — due to a detected behavioral HALT condition."
+                        if suspended else
+                        "A SIGSTOP suspension was attempted but did not suspend the "
+                        "monitored agent; a later HALT may retry."
+                    )
                 ),
                 "agent_process_terminated": False,
+                "agent_process_suspended": suspended,
                 "control_method": "SIGSTOP",
                 "reversible": True,
             },
@@ -798,9 +804,9 @@ class ProcessObserver:
 
     def _diff_scope_filesystem(self, now: str, actions: list[AgentAction]) -> None:
         """Snapshot the scope roots and emit synthetic create/delete actions from
-        the set-diff vs the previous snapshot. Feeds the existing behavioral rules
-        (notably 3-deletes-in-10s -> HALT). The first (baseline) poll emits
-        nothing. Fully fail-open."""
+        the set-diff vs the previous snapshot. These observations are deliberately
+        unattributed: a directory snapshot cannot identify the process that made
+        a change. The first (baseline) poll emits nothing. Fully fail-open."""
         if not self._scope_roots:
             return
         # Cadence gate: bound walk cost independently of the process poll rate.
@@ -817,8 +823,8 @@ class ProcessObserver:
                 timestamp=now, action_type=ActionType.UNKNOWN,
                 target="scope too large to snapshot",
                 details={"detected_by": "scope_diff",
+                         "attribution": "unattributed",
                          "file_cap": self._snapshot_file_cap},
-                source_pid=self.agent_pid,
             ))
             return
 
@@ -826,14 +832,16 @@ class ProcessObserver:
             for path in self._scope_snapshot - current:
                 actions.append(AgentAction(
                     timestamp=now, action_type=ActionType.FILE_DELETE,
-                    target=path, details={"detected_by": "scope_diff"},
-                    source_pid=self.agent_pid,
+                    target=path,
+                    details={"detected_by": "scope_diff",
+                             "attribution": "unattributed"},
                 ))
             for path in current - self._scope_snapshot:
                 actions.append(AgentAction(
                     timestamp=now, action_type=ActionType.FILE_WRITE,
-                    target=path, details={"detected_by": "scope_diff"},
-                    source_pid=self.agent_pid,
+                    target=path,
+                    details={"detected_by": "scope_diff",
+                             "attribution": "unattributed"},
                 ))
         self._scope_snapshot = current
 
@@ -1129,12 +1137,24 @@ class Warden:
         """If `command` is a recursive rm whose target is a protected root,
         return that target (→ KILL). Otherwise None. Routine recursive deletes
         of project directories are intentionally allowed to fall through to a
-        FLAG at most — they are not proof of harm."""
+        FLAG at most — they are not proof of harm. Unwrap a shell ``-c`` payload
+        first so an allowed shell cannot bypass this deterministic protection."""
         try:
             tokens = shlex.split(command)
         except ValueError:
             tokens = command.split()
-        if not tokens or os.path.basename(tokens[0]) != "rm":
+        if not tokens:
+            return None
+
+        base_cmd = os.path.basename(tokens[0])
+        if base_cmd in {"bash", "dash", "ksh", "sh", "zsh"}:
+            for index, token in enumerate(tokens[1:], start=1):
+                if (token.startswith("-") and not token.startswith("--")
+                        and "c" in token[1:]):
+                    payload = " ".join(tokens[index + 1:])
+                    return self._rm_rf_protected_target(payload) if payload else None
+            return None
+        if base_cmd != "rm":
             return None
 
         recursive = False
@@ -1341,45 +1361,38 @@ class Warden:
         """Rule engine first, then LLM for ambiguous cases."""
 
         # A filesystem-diff action cannot be attributed to a specific pid — the
-        # diff only sees that a path appeared/vanished, not who did it. So a
-        # non-agent writer inside the scope must NEVER cause an instant SIGKILL.
-        # Skip the hardcoded-KILL layer for these; they escalate only via the
-        # behavioral rules below (e.g. 3-deletes-in-10s -> HALT).
+        # diff only sees that a path appeared/vanished, not who did it. Preserve
+        # the observation, but never use it to suspend or kill the monitored
+        # process. Protected-path observations are downgraded to FLAG.
         is_diff = action.details.get("detected_by") == "scope_diff"
+        if is_diff:
+            verdict, reason = self.scope.check_filesystem(action.target)
+            if verdict == Verdict.KILL:
+                verdict = Verdict.FLAG
+            return WardenVerdict(
+                verdict=verdict,
+                reason=f"Unattributed scope-diff observation: {reason}",
+                action=action,
+                evaluator="rule_engine",
+            )
 
         # Hardcoded KILL checks (highest priority) — attributed actions only.
-        if not is_diff:
-            # Defense-in-depth: record credential reads + fire the deterministic
-            # credential-read-then-network-out exfil KILL. Runs first so a
-            # network-out that follows a credential touch is caught BEFORE the
-            # (benign) localhost / allowed-domain network check would clear it.
-            exfil_verdict = self._track_and_check_exfil(action)
-            if exfil_verdict is not None:
-                return exfil_verdict
+        # Defense-in-depth: record credential reads + fire the deterministic
+        # credential-read-then-network-out exfil KILL. Runs first so a
+        # network-out that follows a credential touch is caught BEFORE the
+        # (benign) localhost / allowed-domain network check would clear it.
+        exfil_verdict = self._track_and_check_exfil(action)
+        if exfil_verdict is not None:
+            return exfil_verdict
 
-            kill_verdict = self._check_hardcoded_kill(action)
-            if kill_verdict is not None:
-                return kill_verdict
+        kill_verdict = self._check_hardcoded_kill(action)
+        if kill_verdict is not None:
+            return kill_verdict
 
-        # Behavioral HALT checks (this is where diff-detected mass-deletes escalate)
+        # Behavioral HALT checks apply only to process-attributed observations.
         halt_verdict = self._check_halt_triggers(action)
         if halt_verdict is not None:
             return halt_verdict
-
-        # Unattributed diff action that tripped no behavioral rule: run the scope
-        # check but downgrade any KILL to HALT (never instant-SIGKILL on a diff).
-        if is_diff:
-            v, reason = self.scope.check_filesystem(action.target)
-            if v == Verdict.KILL:
-                return WardenVerdict(
-                    verdict=Verdict.HALT,
-                    reason=f"Diff-detected protected-path change "
-                           f"(unattributed): {action.target}",
-                    action=action, evaluator="rule_engine",
-                )
-            return WardenVerdict(
-                verdict=v, reason=reason, action=action, evaluator="rule_engine"
-            )
 
         if action.action_type in (ActionType.FILE_READ, ActionType.FILE_WRITE,
                                    ActionType.FILE_DELETE):
@@ -1486,13 +1499,19 @@ class Warden:
             f"{verdict.action.target}"
         )
         suspend_result = self.killswitch.suspend_agent()
-        self.suspended = True
-        self.log.critical(
-            f"   ⏸️  Agent SIGSTOPed (reversible pause): "
-            f"pids={suspend_result['pids_suspended']} "
-            f"suspended={suspend_result['suspended']} "
-            f"errors={suspend_result['errors']}"
-        )
+        pids_suspended = suspend_result.get("pids_suspended", [])
+        self.suspended = bool(suspend_result.get("suspended") and pids_suspended)
+        suspend_result["suspended"] = self.suspended
+        if self.suspended:
+            self.log.critical(
+                f"   ⏸️  Agent SIGSTOPed (reversible pause): "
+                f"pids={pids_suspended} errors={suspend_result['errors']}"
+            )
+        else:
+            self.log.error(
+                f"   Suspension failed (will retry on next HALT): "
+                f"pids={pids_suspended} errors={suspend_result['errors']}"
+            )
         try:
             report_path = self.logger.generate_halt_report(
                 verdict, self.all_verdicts, suspend_result

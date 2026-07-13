@@ -122,6 +122,52 @@ def test_execute_halt_suspends_once_idempotent(monkeypatch, tmp_path):
     assert calls["n"] == 1
 
 
+def test_execute_halt_retries_after_failed_no_pid_suspend(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    results = iter([
+        {"suspended": False, "pids_suspended": [], "errors": ["gone"]},
+        {"suspended": True, "pids_suspended": [4321], "errors": []},
+    ])
+    calls = {"n": 0}
+
+    def fake_suspend():
+        calls["n"] += 1
+        return next(results)
+
+    monkeypatch.setattr(w.killswitch, "suspend_agent", fake_suspend)
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+    assert w.suspended is False
+    assert calls["n"] == 1
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+    assert w.suspended is True
+    assert calls["n"] == 2
+
+    # Only a successful suspension suppresses later duplicate signals.
+    asyncio.run(w.execute_halt(_halt_verdict()))
+    assert calls["n"] == 2
+
+
+def test_failed_halt_report_does_not_claim_agent_suspended(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    monkeypatch.setattr(
+        w.killswitch,
+        "suspend_agent",
+        lambda: {"suspended": False, "pids_suspended": [], "errors": ["gone"]},
+    )
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+
+    import json
+    reports = list((tmp_path / "logs" / "incidents").glob("halt_*.json"))
+    assert reports
+    doc = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert doc["halt_report"]["status"] == "SUSPENSION_FAILED"
+    assert doc["control_action"]["suspended"] is False
+    assert doc["liability_statement"]["agent_process_suspended"] is False
+
+
 def test_execute_halt_is_reversible_not_a_kill(monkeypatch, tmp_path):
     w = _warden(tmp_path)
     monkeypatch.setattr(w.killswitch, "suspend_agent",

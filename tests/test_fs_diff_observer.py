@@ -3,7 +3,7 @@
 Covers the macOS blind spot: psutil.open_files() cannot see in-process deletes
 (os.remove() opens no fd). The ProcessObserver now snapshots the scope's
 workspace dirs each poll and emits synthetic FILE_DELETE / FILE_WRITE actions
-from the path-set diff, which feed the existing "3 deletes in 10s -> HALT" rule.
+from the path-set diff as useful but explicitly unattributed observations.
 """
 
 import asyncio
@@ -94,7 +94,8 @@ def test_delete_set_emits_file_delete(tmp_path):
     assert len(deletes) == 1
     assert deletes[0].target == str(victim)
     assert deletes[0].details.get("detected_by") == "scope_diff"
-    assert deletes[0].source_pid == obs.agent_pid
+    assert deletes[0].details.get("attribution") == "unattributed"
+    assert deletes[0].source_pid is None
 
 
 def test_create_set_emits_file_write(tmp_path):
@@ -107,6 +108,8 @@ def test_create_set_emits_file_write(tmp_path):
     assert len(writes) == 1
     assert writes[0].target == str(tmp_path / "new.txt")
     assert writes[0].details.get("detected_by") == "scope_diff"
+    assert writes[0].details.get("attribution") == "unattributed"
+    assert writes[0].source_pid is None
 
 
 def test_mass_delete_emits_one_delete_per_file(tmp_path):
@@ -137,6 +140,7 @@ def test_count_cap_emits_single_flag_and_no_per_file_actions(tmp_path):
     assert len(actions) == 1
     assert actions[0].action_type == ActionType.UNKNOWN
     assert actions[0].target == "scope too large to snapshot"
+    assert actions[0].source_pid is None
     # a capped/truncated snapshot must NOT establish a baseline (would emit
     # spurious deletes on the next poll)
     assert obs._scope_snapshot is None
@@ -186,7 +190,7 @@ def test_cadence_gate_skips_walk_until_min_interval_elapses(tmp_path):
     assert obs._scope_snapshot is baseline  # snapshot untouched
 
 
-# ── routing: diff deletes HALT, never instant-KILL ───────────────────────────
+# ── routing: unattributed diffs observe but never enforce ───────────────────
 
 _ROUTING_SCOPE = """
 filesystem:
@@ -219,37 +223,37 @@ def _routing_warden() -> Warden:
 def _diff_delete(target: str) -> AgentAction:
     return AgentAction(
         timestamp=_now_iso(), action_type=ActionType.FILE_DELETE,
-        target=target, details={"detected_by": "scope_diff"},
-        source_pid=os.getpid(),
+        target=target,
+        details={"detected_by": "scope_diff", "attribution": "unattributed"},
     )
 
 
-def test_three_diff_deletes_route_to_halt():
+def test_three_unattributed_diff_deletes_do_not_halt_or_arm_threshold():
     w = _routing_warden()
     w.judge.available = False
     verdicts = [
         asyncio.run(w.evaluate_action(_diff_delete(f"/tmp/work/f{i}.txt")))
         for i in range(3)
     ]
-    assert verdicts[-1].verdict == Verdict.HALT
-    assert "deletion" in verdicts[-1].reason.lower()
+    assert all(v.verdict == Verdict.SAFE for v in verdicts)
+    assert w.delete_timestamps == []
 
 
 def test_single_benign_diff_delete_is_safe_not_halt_or_kill():
     w = _routing_warden()
     w.judge.available = False
     v = asyncio.run(w.evaluate_action(_diff_delete("/tmp/work/note.txt")))
-    assert v.verdict == Verdict.SAFE  # under the 3-in-10s threshold, in-scope
+    assert v.verdict == Verdict.SAFE  # observed in-scope, but not attributed
 
 
-def test_diff_delete_of_forbidden_path_is_halt_not_kill():
-    # A dir diff can't attribute the delete to a pid, so even a protected-path
-    # delete must NOT instant-SIGKILL (a non-agent writer would be a false kill).
+def test_diff_delete_of_forbidden_path_is_flag_not_halt_or_kill():
+    # A dir diff cannot attribute the delete to a pid, so a protected-path
+    # observation is retained for review without enforcing against the agent.
     w = _routing_warden()
     w.judge.available = False
     v = asyncio.run(w.evaluate_action(_diff_delete("/tmp/work/secrets/key.txt")))
-    assert v.verdict == Verdict.HALT
-    assert v.verdict != Verdict.KILL
+    assert v.verdict == Verdict.FLAG
+    assert "unattributed" in v.reason.lower()
 
 
 def test_attributed_forbidden_delete_still_kills_when_not_from_diff():
@@ -259,6 +263,7 @@ def test_attributed_forbidden_delete_still_kills_when_not_from_diff():
     attributed = AgentAction(
         timestamp=_now_iso(), action_type=ActionType.FILE_READ,
         target="/tmp/work/secrets/key.txt",
+        source_pid=os.getpid(),
     )
     v = asyncio.run(w.evaluate_action(attributed))
     assert v.verdict == Verdict.KILL

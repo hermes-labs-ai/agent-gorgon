@@ -145,6 +145,27 @@ def test_rm_rf_filesystem_root_kills():
     assert "protected root" in v.reason.lower()
 
 
+def test_shell_wrapped_rm_rf_protected_roots_kill():
+    w = _warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf /'",
+        "/bin/sh -c rm -rf /",
+        "bash -lc 'rm -rf ~'",
+        "zsh -c 'rm -rf /tmp/secret/token.txt'",
+    ):
+        v = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert v.verdict == Verdict.KILL, cmd
+
+
+def test_shell_wrapped_rm_rf_project_dirs_do_not_kill():
+    w = _warden()
+    w.judge.available = False
+    for cmd in ("sh -c 'rm -rf build'", "bash -lc 'rm -rf .venv'"):
+        v = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert v.verdict != Verdict.KILL, cmd
+
+
 def test_rm_rf_home_kills():
     w = _warden()
     w.judge.available = False
