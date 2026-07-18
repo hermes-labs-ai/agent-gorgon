@@ -1,4 +1,4 @@
-# Suy Sideguy — Layered Implementation Plan (Repo Update)
+# Agent Warden — Layered Implementation Plan (Repo Update)
 
 Goal: strengthen runtime safety without breaking normal user workflows.
 

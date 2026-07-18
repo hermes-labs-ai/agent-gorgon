@@ -1,4 +1,4 @@
-# Suy Sideguy Audit Checklist
+# Agent Warden Audit Checklist
 
 Use this checklist before switching from audit-only to stronger enforcement.
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Suy Sideguy.
+Thanks for helping improve Agent Warden.
 
 ## Quick setup
 

@@ -1,5 +1,5 @@
 """
-Suy Sideguy - Outbound Agent Security Monitor
+Agent Warden - Outbound Agent Security Monitor
 ==============================================
 Monitors AI agent behavior in real-time and can terminate high-risk agent sessions.
 Runs as a separate daemon process for defense-in-depth monitoring.
@@ -466,7 +466,7 @@ class IncidentLogger:
         report = {
             "incident_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Suy Sideguy v0.1.2",
+                "generator": "Agent Warden v0.1.2",
                 "session_id": self.session_id,
                 "status": "AGENT_TERMINATED"
             },
@@ -489,7 +489,7 @@ class IncidentLogger:
             "action_timeline": timeline,
             "liability_statement": {
                 "notice": (
-                    "This report was generated automatically by Suy Sideguy, "
+                    "This report was generated automatically by Agent Warden, "
                     "an autonomous AI agent security monitor. The monitored agent "
                     "was terminated due to detected behavioral deviation from its "
                     "authorized scope. All actions listed in the timeline were "
@@ -534,7 +534,7 @@ class IncidentLogger:
         report = {
             "halt_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Suy Sideguy v0.1.2",
+                "generator": "Agent Warden v0.1.2",
                 "session_id": self.session_id,
                 "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
@@ -566,7 +566,7 @@ class IncidentLogger:
             "action_timeline": timeline,
             "liability_statement": {
                 "notice": (
-                    "This report was generated automatically by Suy Sideguy, "
+                    "This report was generated automatically by Agent Warden, "
                     "an autonomous AI agent security monitor. "
                     + (
                         "The monitored agent was SUSPENDED (SIGSTOP) — a reversible "
@@ -1549,7 +1549,7 @@ class Warden:
     async def run(self):
         """Main monitoring loop."""
         
-        self.log.info("🛡️  Suy Sideguy active")
+        self.log.info("🛡️  Agent Warden active")
         self.log.info(f"   PID: {self.agent_pid}")
         self.log.info(f"   Poll: {self.poll_interval}s")
         self.log.info(f"   Agent: {self.scope.config.get('agent', {}).get('name', 'unknown')}")
@@ -1663,7 +1663,7 @@ def find_process_by_name(name: str):
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Suy Sideguy - AI Agent Security Monitor"
+        description="Agent Warden - AI Agent Security Monitor"
     )
     parser.add_argument('--scope', required=True, help='Path to scope YAML')
     parser.add_argument('--agent-pid', type=int, help='Agent PID')
