@@ -67,9 +67,9 @@ def _scope_file() -> str:
         return f.name
 
 
-def _warden() -> Warden:
+def _warden(log_dir: str | None = None, enable_llm: bool = True) -> Warden:
     return Warden(scope_path=_scope_file(), agent_pid=os.getpid(),
-                  poll_interval=0.01)
+                  poll_interval=0.01, log_dir=log_dir, enable_llm=enable_llm)
 
 
 def _now_iso() -> str:
@@ -243,3 +243,70 @@ def test_slow_llm_does_not_delay_deterministic_flag():
     assert verdict.evaluator == "rule_engine"
     assert elapsed < 0.5, f"deterministic FLAG blocked on LLM ({elapsed:.2f}s)"
     assert n_dispatched == 1, "advisory judge should run off the hot path"
+
+
+def test_advisory_fanout_is_bounded_to_one_in_flight_task():
+    w = _warden()
+    w.judge.available = True
+
+    async def _hang(*_args, **_kwargs):
+        await asyncio.sleep(30)
+        return WardenVerdict(Verdict.FLAG, "late", _netout(), "llm_judge")
+
+    w.judge.evaluate = _hang  # type: ignore[assignment]
+
+    async def _drive():
+        for i in range(20):
+            await w.evaluate_action(_exec(f"unknown-{i}"))
+        in_flight = len(w._advisory_tasks)
+        skipped = w.advisory_skipped_busy
+        for task in list(w._advisory_tasks):
+            task.cancel()
+        await asyncio.gather(*w._advisory_tasks, return_exceptions=True)
+        return in_flight, skipped
+
+    in_flight, skipped = asyncio.run(_drive())
+
+    assert in_flight == 1
+    assert skipped == 19
+
+
+def test_completed_advisory_is_persisted_as_non_enforcing_evidence(tmp_path):
+    w = _warden(log_dir=str(tmp_path / "logs"))
+    advisory = WardenVerdict(
+        verdict=Verdict.KILL,
+        reason="model attempted escalation",
+        action=_netout(),
+        evaluator="llm_judge",
+        confidence=0.91,
+    )
+
+    w._apply_advisory(advisory)
+
+    rows = [
+        json.loads(line)
+        for line in w.logger.action_log_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(rows) == 1
+    assert rows[0]["evaluator"] == "llm_judge"
+    assert rows[0]["verdict"] == "FLAG"
+    assert rows[0]["reason"] == "model attempted escalation"
+    assert rows[0]["confidence"] == 0.91
+
+
+def test_no_llm_mode_skips_localhost_probe(monkeypatch, tmp_path):
+    w = _warden(log_dir=str(tmp_path / "logs"), enable_llm=False)
+
+    async def _unexpected_probe():
+        raise AssertionError("--no-llm must not probe localhost Ollama")
+
+    monkeypatch.setattr(w.judge, "check_available", _unexpected_probe)
+    monkeypatch.setattr(w.observer, "is_agent_alive", lambda: False)
+
+    asyncio.run(w.run())
+
+    assert w.judge.available is False
+
+    action = _exec("unknown-command")
+    verdict = asyncio.run(w.evaluate_action(action))
+    assert "LLM disabled" in verdict.reason

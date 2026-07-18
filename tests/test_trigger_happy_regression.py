@@ -150,7 +150,7 @@ def test_shell_wrapped_rm_rf_protected_roots_kill():
     w.judge.available = False
     for cmd in (
         "sh -c 'rm -rf /'",
-        "/bin/sh -c rm -rf /",
+        "/bin/sh -c 'rm -rf /'",
         "bash -lc 'rm -rf ~'",
         "zsh -c 'rm -rf /tmp/secret/token.txt'",
     ):
@@ -162,6 +162,24 @@ def test_shell_wrapped_rm_rf_project_dirs_do_not_kill():
     w = _warden()
     w.judge.available = False
     for cmd in ("sh -c 'rm -rf build'", "bash -lc 'rm -rf .venv'"):
+        v = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert v.verdict != Verdict.KILL, cmd
+
+
+def test_shell_positional_args_are_not_reinterpreted_as_rm_targets():
+    """Only the one argv item after -c is executable shell text.
+
+    A later '/' is shell $0/$1 data, not an rm operand, and must not create a
+    false-positive SIGKILL for a benign project cleanup.
+    """
+    w = _warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf build' /",
+        "bash -lc 'rm -rf .venv' / --extra",
+        "sh -c rm -rf /",
+    ):
+        assert w._rm_rf_protected_target(cmd) is None, cmd
         v = asyncio.run(w.evaluate_action(_exec(cmd)))
         assert v.verdict != Verdict.KILL, cmd
 

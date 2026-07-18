@@ -5,7 +5,7 @@ Runtime safety guard for autonomous AI agents. Monitors process/file/network beh
 ## Commands
 
 - `pip install -e ".[dev]"` -- Install with dev deps
-- `pytest` -- Run all 90 tests
+- `pytest` -- Run the full test suite
 - `pytest tests/test_scope.py -v` -- Single test module
 - `ruff check agent_warden/` -- Lint
 - `mypy agent_warden/` -- Type check
@@ -52,4 +52,5 @@ Enforcement pipeline: Observer → Rule Engine (deterministic scope checks — t
 - Network checks match IP/port, not domain — DNS resolution is lossy
 - `--agent-name` can over-match processes; prefer `--agent-pid` in production
 - Log/evidence paths default to `~/.local/share/sysmond/` (legacy naming)
-- The scope YAML `flag_threshold` and `flag_window` control when flags escalate to kill
+- Flags do not auto-kill unless `WARDEN_KILL_ON_FLAGS=1`; then `flag_threshold` and
+  `flag_window` control accumulation

@@ -2,6 +2,9 @@
 
 Goal: strengthen runtime safety without breaking normal user workflows.
 
+Status note: enforcement modes in Layer 3 remain planned and unchecked. Agent Warden 0.1.5 has
+no audit-only or confirm mode; its deterministic HALT/KILL rules are active while it runs.
+
 Core principle: early rollout is **signal-first**; flags provide calibration data, and kill actions should follow configurable risk accumulation except for hard invariants.
 
 ---

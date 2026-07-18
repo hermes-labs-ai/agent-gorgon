@@ -78,7 +78,8 @@ process:
     - "rm -rf /"
 
 behavior:
-  # Low-disruption profile: tolerate expected noise, escalate after accumulation.
+  # Low-disruption profile: tolerate expected noise. Accumulation kills remain
+  # disabled unless the operator explicitly sets WARDEN_KILL_ON_FLAGS=1.
   flag_threshold: 12
   flag_window: 300
   max_actions_per_minute: 300

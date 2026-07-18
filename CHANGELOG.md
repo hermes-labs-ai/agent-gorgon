@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.5] - 2026-07-06
+## [0.1.5] - Unreleased
 
 ### Changed
 - **Agent Warden is the canonical identity** — the primary distribution is `agent-warden`,
@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than 2026-10-10 and only after the owner records the release flip.
 
 ### Fixed
+- **Prior exact-review blockers closed** — shell `-c` parsing preserves the command-string boundary,
+  advisory LLM fanout is bounded to one in-flight task, and completed advisory evidence is persisted.
+- **Evidence claims are outcome-bound** — a failed SIGKILL attempt stays retryable and its report no
+  longer claims that the process terminated; report generator metadata now matches 0.1.5.
+- **Runtime and privacy claims are explicit** — snapshot deletes are documented as unattributed and
+  non-enforcing, nonexistent audit/confirm modes are no longer advertised, `--no-llm` disables local
+  Ollama traffic, and raw-IP checks no longer use untrusted/leaky reverse DNS.
 - **HALT now enforces** — a HALT verdict SIGSTOPs the agent process tree (reversible pause, signalled once, forensic halt report written). Previously HALT only logged and the agent kept running, contradicting the documented "freeze + alert" behavior.
 - **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
 - **Credential-read then network-out exfil pattern KILLs deterministically**; a bare network-out without a preceding credential read stays HALT/FLAG.

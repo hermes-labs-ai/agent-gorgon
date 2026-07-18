@@ -1,6 +1,6 @@
 {
   "title": "agent-warden: runtime policy guard for autonomous AI agents",
-  "description": "agent-warden is a runtime policy guard for autonomous AI agents: it enforces kill/flag policy on a live agent process and produces a forensic report of what the agent actually did, judging the agent by its behavior rather than its configuration.",
+  "description": "agent-warden is a user-space polling guard for autonomous AI agents. It applies deterministic policy to best-effort process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution.",
   "upload_type": "software",
   "version": "0.1.5",
   "creators": [

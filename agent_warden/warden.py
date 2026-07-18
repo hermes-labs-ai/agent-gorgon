@@ -1,7 +1,7 @@
 """
 Agent Warden - Outbound Agent Security Monitor
 ==============================================
-Monitors AI agent behavior in real-time and can terminate high-risk agent sessions.
+Polls best-effort user-space observations and can attempt to stop high-risk agent sessions.
 Runs as a separate daemon process for defense-in-depth monitoring.
 
 Architecture:
@@ -201,23 +201,18 @@ class Scope:
         return Verdict.FLAG, f"Path outside allowed scope: {path}"
     
     def check_network(self, domain: str, port: int = 443) -> tuple:
-        import socket
-
         domain = domain.lower().strip()
 
         # Localhost is always safe (IPC, Ollama, etc.)
         if domain in ("127.0.0.1", "::1", "localhost"):
             return Verdict.SAFE, f"Localhost connection: {domain}:{port}"
 
-        # If it looks like a raw IP, try reverse DNS to get a hostname
-        is_ip = all(c.isdigit() or c == "." or c == ":" for c in domain)
-        if is_ip:
-            try:
-                resolved = socket.gethostbyaddr(domain)[0].lower()
-            except Exception:
-                resolved = domain
-        else:
-            resolved = domain
+        # The process observer reports remote IPs, not authenticated hostnames.
+        # Never trust reverse DNS to turn an observed IP into an allowlisted
+        # hostname: PTR data is not proof of the destination's identity and the
+        # lookup itself leaks an observed address to the system resolver. Raw IPs
+        # can still be allowed/forbidden explicitly in the scope.
+        resolved = domain
 
         for forbidden in self.forbidden_domains:
             if resolved == forbidden or resolved.endswith(f".{forbidden}"):
@@ -445,8 +440,10 @@ class IncidentLogger:
         with open(self.action_log_path, 'a') as f:
             f.write(json.dumps(entry) + "\n")
     
-    def generate_incident_report(self, kill_verdict: WardenVerdict, 
-                                  all_verdicts: list) -> str:
+    def generate_incident_report(self, kill_verdict: WardenVerdict,
+                                  all_verdicts: list,
+                                  kill_result: dict | None = None,
+                                  rollback_result: dict | None = None) -> str:
         
         report_path = self.incident_dir / f"incident_{self.session_id}_{int(time.time())}.json"
         
@@ -463,12 +460,24 @@ class IncidentLogger:
         
         flags = sum(1 for v in all_verdicts if v.verdict == Verdict.FLAG)
         
+        kill_result = kill_result or {}
+        rollback_result = rollback_result or {}
+        terminated = bool(
+            kill_result.get("killed") and kill_result.get("pids_terminated")
+        )
+        if terminated:
+            control_status = "AGENT_TERMINATED"
+        elif kill_result:
+            control_status = "TERMINATION_FAILED"
+        else:
+            control_status = "TERMINATION_UNVERIFIED"
+
         report = {
             "incident_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.2",
+                "generator": "Agent Warden v0.1.5",
                 "session_id": self.session_id,
-                "status": "AGENT_TERMINATED"
+                "status": control_status,
             },
             "kill_trigger": {
                 "timestamp": kill_verdict.timestamp,
@@ -489,19 +498,18 @@ class IncidentLogger:
             "action_timeline": timeline,
             "liability_statement": {
                 "notice": (
-                    "This report was generated automatically by Agent Warden, "
-                    "an autonomous AI agent security monitor. The monitored agent "
-                    "was terminated due to detected behavioral deviation from its "
-                    "authorized scope. All actions listed in the timeline were "
-                    "observed and logged in real-time. This document may be used "
-                    "as evidence that the agent's actions were unauthorized and "
-                    "that automated countermeasures were active."
+                    "This report contains best-effort user-space observations and "
+                    "control-attempt records. It does not prove authorship, intent, "
+                    "or complete operating-system visibility. Snapshot-diff events "
+                    "are explicitly unattributed. Review the underlying action log "
+                    "and kill_execution fields before drawing incident conclusions."
                 ),
-                "agent_process_terminated": True,
-                "termination_method": "SIGKILL",
-                "rollback_attempted": True,
-                "rollback_details": None
-            }
+                "agent_process_terminated": terminated,
+                "termination_method": "SIGKILL" if terminated else "SIGKILL_ATTEMPTED",
+                "rollback_attempted": bool(rollback_result.get("attempted")),
+                "rollback_details": rollback_result or None,
+            },
+            "kill_execution": kill_result,
         }
         
         with open(report_path, 'w') as f:
@@ -534,7 +542,7 @@ class IncidentLogger:
         report = {
             "halt_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.2",
+                "generator": "Agent Warden v0.1.5",
                 "session_id": self.session_id,
                 "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
@@ -922,7 +930,11 @@ class ProcessObserver:
                         if child.pid not in self._known_children:
                             self._known_children.add(child.pid)
                             try:
-                                cmdline = ' '.join(child.cmdline())
+                                # Preserve argv boundaries. A plain join loses the
+                                # distinction between a shell -c payload and later
+                                # $0/$1 arguments, which can create both false
+                                # positives and bypasses in recursive-rm checks.
+                                cmdline = shlex.join(child.cmdline())
                             except (psutil.AccessDenied, psutil.NoSuchProcess):
                                 cmdline = "unknown"
                             actions.append(AgentAction(
@@ -966,7 +978,8 @@ class Warden:
     def __init__(self, scope_path: str, agent_pid: int, 
                  poll_interval: float = 0.5,
                  model: str = "qwen3:4b",
-                 log_dir: str | None = None):
+                 log_dir: str | None = None,
+                 enable_llm: bool = True):
 
         self.scope = Scope(scope_path)
         self.observer = ProcessObserver(agent_pid, scope=self.scope)
@@ -976,6 +989,7 @@ class Warden:
         
         self.agent_pid = agent_pid
         self.poll_interval = poll_interval
+        self.enable_llm = enable_llm
         
         self.all_verdicts: list = []
         self.flag_timestamps: list = []
@@ -994,6 +1008,7 @@ class Warden:
         # and can NEVER kill or suspend.
         self.advisories: list = []
         self._advisory_tasks: set = set()
+        self.advisory_skipped_busy = 0
         # Per-pid recent credential-read timestamps; arms the deterministic
         # credential-read-then-network-out exfil KILL rule (defense-in-depth).
         self.credential_reads: dict[int | None, list[float]] = {}
@@ -1005,16 +1020,22 @@ class Warden:
 
         self.scope_summary = self._build_scope_summary()
         
-        # Non-obvious log location and process identity
-        os.makedirs(os.path.expanduser("~/.local/share/sysmond"), exist_ok=True)
+        # Keep the historical default layout, but honor --log-dir for every
+        # runtime artifact. A custom evidence directory must not still create or
+        # write ~/.local/share/sysmond/warden.log behind the operator's back.
+        runtime_log_dir = (
+            Path(log_dir)
+            if log_dir is not None
+            else Path(os.path.expanduser("~/.local/share/sysmond"))
+        )
+        runtime_log_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime_log_path = runtime_log_dir / "warden.log"
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s [%(levelname)s] %(message)s',
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler(
-                    os.path.expanduser("~/.local/share/sysmond/warden.log")
-                )
+                logging.FileHandler(self.runtime_log_path)
             ]
         )
         self.log = logging.getLogger("sysmond")
@@ -1151,7 +1172,10 @@ class Warden:
             for index, token in enumerate(tokens[1:], start=1):
                 if (token.startswith("-") and not token.startswith("--")
                         and "c" in token[1:]):
-                    payload = " ".join(tokens[index + 1:])
+                    # POSIX shells consume exactly one argv item as the command
+                    # string after -c. Later argv items become $0, $1, ... and
+                    # must never be reinterpreted as rm operands.
+                    payload = tokens[index + 1] if index + 1 < len(tokens) else ""
                     return self._rm_rf_protected_target(payload) if payload else None
             return None
         if base_cmd != "rm":
@@ -1427,7 +1451,8 @@ class Warden:
         if self.judge.available:
             self._dispatch_advisory(action)
         else:
-            det_verdict.reason = reason + " (LLM unavailable)"
+            llm_state = "disabled" if not self.enable_llm else "unavailable"
+            det_verdict.reason = f"{reason} (LLM {llm_state})"
         return det_verdict
 
     def _dispatch_advisory(self, action: AgentAction) -> None:
@@ -1438,6 +1463,13 @@ class Warden:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            return
+        # One in-flight advisory is enough: deterministic evaluation is the hot
+        # path, and an unavailable/slow Ollama endpoint must not create an
+        # unbounded task/socket fanout during a burst of FLAG actions.
+        if self._advisory_tasks:
+            self.advisory_skipped_busy += 1
+            self.log.debug("Advisory skipped: one evaluation is already in flight")
             return
         recent = [v.action for v in self.all_verdicts[-20:]]
         task = loop.create_task(self._run_advisory(action, recent))
@@ -1469,6 +1501,14 @@ class Warden:
         method deliberately has NO path to execute_kill / execute_halt / the
         kill-capable flag_timestamps accumulator."""
         verdict = LLMJudge._coerce_advisory_verdict(advisory.verdict.value)
+        persisted = WardenVerdict(
+            verdict=verdict,
+            reason=advisory.reason,
+            action=advisory.action,
+            evaluator="llm_judge",
+            confidence=advisory.confidence,
+            timestamp=advisory.timestamp,
+        )
         self.advisories.append({
             "timestamp": advisory.timestamp,
             "advisory_verdict": verdict.value,
@@ -1476,6 +1516,13 @@ class Warden:
             "confidence": advisory.confidence,
             "action": advisory.action.to_dict(),
         })
+        # Advisory output is forensic evidence even though it has no enforcement
+        # authority. Persist completed results in the same JSONL evidence stream,
+        # clearly labeled by evaluator, instead of losing them on process exit.
+        try:
+            self.logger.log_action(persisted)
+        except Exception as e:  # noqa: BLE001 — evidence failure must be visible
+            self.log.error(f"Advisory evidence persistence failed: {e}")
         if verdict == Verdict.FLAG:
             self.log.warning(
                 f"🔎 Advisory (raise posture, non-enforcing): {advisory.reason}"
@@ -1527,12 +1574,19 @@ class Warden:
         self.log.critical(f"   Action: {verdict.action.action_type.value} -> {verdict.action.target}")
         
         kill_result = self.killswitch.kill_agent()
-        self.log.critical(f"   Agent terminated: {kill_result['killed']}")
+        self.log.critical(
+            "   SIGKILL attempt: "
+            f"success={kill_result['killed']} "
+            f"pids={kill_result.get('pids_terminated', [])} "
+            f"errors={kill_result.get('errors', [])}"
+        )
         
         rollback_result = self.killswitch.attempt_rollback(verdict.action)
         self.log.info(f"   Rollback: {rollback_result['details']}")
         
-        report_path = self.logger.generate_incident_report(verdict, self.all_verdicts)
+        report_path = self.logger.generate_incident_report(
+            verdict, self.all_verdicts, kill_result, rollback_result
+        )
         
         # Update report with execution details
         with open(report_path, 'r') as f:
@@ -1544,7 +1598,9 @@ class Warden:
             json.dump(report, f, indent=2)
         
         self.log.critical(f"   📋 Report: {report_path}")
-        self.killed = True
+        self.killed = bool(
+            kill_result.get("killed") and kill_result.get("pids_terminated")
+        )
     
     async def run(self):
         """Main monitoring loop."""
@@ -1554,8 +1610,16 @@ class Warden:
         self.log.info(f"   Poll: {self.poll_interval}s")
         self.log.info(f"   Agent: {self.scope.config.get('agent', {}).get('name', 'unknown')}")
         
-        await self.judge.check_available()
-        self.log.info(f"   LLM: {self.judge.model} {'✅' if self.judge.available else '❌ (rules only)'}")
+        if self.enable_llm:
+            await self.judge.check_available()
+        else:
+            self.judge.available = False
+        llm_status = (
+            "disabled (rules only)"
+            if not self.enable_llm
+            else ("✅" if self.judge.available else "❌ (rules only)")
+        )
+        self.log.info(f"   LLM: {self.judge.model} {llm_status}")
         self.log.info(f"   Log: {self.logger.action_log_path}")
         self.log.info("   ─────────────────────────────")
         
@@ -1669,6 +1733,10 @@ async def main():
     parser.add_argument('--agent-pid', type=int, help='Agent PID')
     parser.add_argument('--agent-name', type=str, help='Find agent by name')
     parser.add_argument('--model', default='qwen3:4b', help='Ollama model (default: qwen3:4b)')
+    parser.add_argument(
+        '--no-llm', action='store_true',
+        help='Disable the localhost Ollama probe and advisory calls',
+    )
     parser.add_argument('--poll', type=float, default=0.5, help='Poll interval sec')
     parser.add_argument('--log-dir', type=str, help='Override log directory')
     parser.add_argument('--verbose', action='store_true', help='Show SAFE actions too')
@@ -1702,7 +1770,8 @@ async def main():
         agent_pid=agent_pid,
         poll_interval=args.poll,
         model=args.model,
-        log_dir=args.log_dir
+        log_dir=args.log_dir,
+        enable_llm=not args.no_llm,
     )
     
     await warden.run()

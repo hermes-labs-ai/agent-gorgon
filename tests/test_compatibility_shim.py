@@ -71,3 +71,17 @@ def test_legacy_python_module_cli_forwards_with_visible_warning(module: str) -> 
     assert result.returncode == 0, result.stderr
     assert "DEPRECATION: suy-sideguy is deprecated" in result.stderr
     assert "usage:" in result.stdout
+
+
+@pytest.mark.parametrize("module", ["warden", "forensic_report"])
+def test_canonical_python_module_cli_has_no_runpy_warning(module: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", f"agent_warden.{module}", "--help"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RuntimeWarning" not in result.stderr
+    assert "usage:" in result.stdout

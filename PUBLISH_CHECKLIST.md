@@ -25,6 +25,7 @@
 - [ ] `python -m build compat/suy-sideguy` succeeds
 - [ ] Verify `agent-warden` owns only `agent_warden` and the new entry points
 - [ ] Verify `suy-sideguy` owns only `suy_sideguy` and the legacy entry points
+- [ ] Verify both wheel/sdist pairs include the Apache-2.0 license
 - [ ] Verify the shim pins the exact matching `agent-warden` version
 - [ ] Validate console entry points:
   - [ ] `agent-warden --help`
@@ -34,6 +35,9 @@
 - [ ] In a fresh environment, install `agent-warden` from local artifacts and run new imports/CLIs
 - [ ] In a second fresh environment, install local `suy-sideguy==0.1.4`, upgrade it to the
       local shim, and run both legacy and canonical imports/CLIs
+- [ ] Repeat the upgrade from the currently published predecessor
+      (`suy-sideguy==0.1.3` when this RC was prepared)
+- [ ] Run the canonical CLI with `--no-llm` and verify no localhost advisory request occurs
 
 ## Security/reliability checks
 
@@ -54,5 +58,6 @@
 - [ ] Keep the compatibility window through `agent-warden` 0.3.x and no earlier than
       2026-10-10 unless the owner records a different window
 - [ ] Commit with release-prep message
-- [ ] Tag release (e.g., `v0.1.0-alpha.1`)
+- [ ] Replace the changelog's `Unreleased` marker with the actual release date
+- [ ] Tag release `v0.1.5`
 - [ ] Publish release notes with known limitations

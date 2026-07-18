@@ -102,6 +102,48 @@ def test_execute_kill_path_without_real_kill(monkeypatch, tmp_path):
     assert incidents, "incident report should be generated"
 
 
+def test_custom_log_dir_contains_runtime_and_evidence_logs(tmp_path):
+    custom = tmp_path / "private-evidence"
+    w = Warden(scope_path=_scope_file(), agent_pid=os.getpid(), log_dir=str(custom))
+
+    assert w.runtime_log_path == custom / "warden.log"
+    assert w.logger.action_log_path.parent == custom
+    assert w.logger.incident_dir == custom / "incidents"
+
+
+def test_failed_kill_attempt_remains_retryable_and_report_is_truthful(monkeypatch, tmp_path):
+    w = Warden(scope_path=_scope_file(), agent_pid=os.getpid(), log_dir=str(tmp_path / "logs"))
+    v = _flag_verdict()
+    v.verdict = Verdict.KILL
+    v.reason = "test failed kill"
+
+    monkeypatch.setattr(
+        w.killswitch,
+        "kill_agent",
+        lambda: {"killed": False, "pids_terminated": [], "errors": ["denied"]},
+    )
+    monkeypatch.setattr(
+        w.killswitch,
+        "attempt_rollback",
+        lambda action: {"attempted": False, "success": False, "details": "not applicable"},
+    )
+
+    asyncio.run(w.execute_kill(v))
+
+    assert w.killed is False
+    incidents = list((tmp_path / "logs" / "incidents").glob("*.json"))
+    assert len(incidents) == 1
+
+    import json
+
+    report = json.loads(incidents[0].read_text(encoding="utf-8"))
+    assert report["incident_report"]["status"] == "TERMINATION_FAILED"
+    assert report["liability_statement"]["agent_process_terminated"] is False
+    assert report["liability_statement"]["termination_method"] == "SIGKILL_ATTEMPTED"
+    assert report["liability_statement"]["rollback_attempted"] is False
+    assert report["kill_execution"]["errors"] == ["denied"]
+
+
 def test_llm_unavailable_fallback_path():
     w = _warden()
     w.judge.available = False
@@ -124,7 +166,11 @@ def test_incident_report_schema_core_fields(tmp_path):
         target="/tmp/demo.txt",
     )
     kill_v = WardenVerdict(verdict=Verdict.KILL, reason="x", action=action, evaluator="rule_engine")
-    report_path = logger.generate_incident_report(kill_v, [kill_v, _flag_verdict()])
+    report_path = logger.generate_incident_report(
+        kill_v,
+        [kill_v, _flag_verdict()],
+        {"killed": True, "pids_terminated": [123], "errors": []},
+    )
 
     import json
 
@@ -134,6 +180,8 @@ def test_incident_report_schema_core_fields(tmp_path):
     assert "session_summary" in report
     assert "liability_statement" in report
     assert report["kill_trigger"]["action_type"] == ActionType.FILE_WRITE.value
+    assert report["incident_report"]["generator"] == "Agent Warden v0.1.5"
+    assert report["incident_report"]["status"] == "AGENT_TERMINATED"
 
 
 def test_rate_limit_flags_not_kills_when_exceeded(monkeypatch):

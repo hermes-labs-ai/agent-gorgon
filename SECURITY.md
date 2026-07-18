@@ -16,7 +16,9 @@ Preferred process:
 ## Operator hardening checklist
 
 Before production use:
-- Start in audit-first mode and validate policy against real workloads.
+- Agent Warden 0.1.5 has no audit-only mode and enforces deterministic HALT/KILL rules while running;
+  validate first against a disposable target and reviewed low-disruption scope.
+- Use `--no-llm` if action/scope data must not be sent to a localhost Ollama service.
 - Prefer `--agent-pid` over process-name matching.
 - Keep scope allowlists narrow and explicit.
 - Store logs on protected storage and define rotation/retention.

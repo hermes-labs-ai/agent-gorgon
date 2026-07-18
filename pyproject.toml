@@ -8,12 +8,11 @@ version = "0.1.5"
 description = "Runtime policy guard for autonomous AI agents with user-space enforcement and forensic reporting."
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [{ name = "Rolando Bosch" }]
 keywords = ["runtime-agent-guard", "ai-agent-security", "runtime-monitoring", "incident-response", "policy-enforcement", "forensics"]
 classifiers = [
   "Development Status :: 3 - Alpha",
-  "License :: OSI Approved :: Apache Software License",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -34,7 +33,7 @@ dependencies = [
 dev = [
   "pytest>=8.4.2",
   "ruff>=0.15.15",
-  "mypy>=1.19.1",
+  "mypy>=1.19.1,<2",
   "types-PyYAML>=6.0.12.20250915",
 ]
 
