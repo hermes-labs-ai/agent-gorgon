@@ -4,8 +4,8 @@ agent-warden is a runtime policy guard for autonomous AI agents that enforces ki
 
 **Watch an agent process and SIGKILL it on policy violation.** Userspace warden that scores file, network, and subprocess behavior against a YAML policy and stops the agent at the action that's about to break things — not the postmortem an hour later.
 
-[![PyPI](https://img.shields.io/pypi/v/suy-sideguy)](https://pypi.org/project/suy-sideguy/)
-[![Python](https://img.shields.io/pypi/pyversions/suy-sideguy)](https://pypi.org/project/suy-sideguy/)
+[![PyPI](https://img.shields.io/pypi/v/agent-warden)](https://pypi.org/project/agent-warden/)
+[![Python](https://img.shields.io/pypi/pyversions/agent-warden)](https://pypi.org/project/agent-warden/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml)
 
@@ -22,17 +22,24 @@ If your agent passed every static check and then deleted 40 files in 8 seconds, 
 ## Install
 
 ```bash
-pip install suy-sideguy
+pip install agent-warden
 ```
 
-(package still publishes as suy-sideguy; renaming to agent-warden next release)
+Existing `suy-sideguy` users should upgrade through the compatibility release:
+
+```bash
+pip install --upgrade suy-sideguy
+```
+
+That release installs the matching `agent-warden` distribution and temporarily forwards the
+legacy `suy_sideguy` imports and `suy-*` commands with deprecation warnings.
 
 Python 3.9+.
 
 ## Quick start
 
 ```bash
-suy-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5
+agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5
 ```
 
 Live output while the agent runs:
@@ -46,7 +53,7 @@ target=12345 verdict=HALT action=suspend       reason=mass_deletion_3_in_10s
 After a run:
 
 ```bash
-suy-forensic-report --last-hours 24
+agent-warden-forensic --last-hours 24
 ```
 
 ## When to use it
@@ -82,7 +89,7 @@ Use `agent-warden` when you run autonomous or semi-autonomous agents and need *u
 ## Install
 
 ```bash
-pip install suy-sideguy
+pip install agent-warden
 ```
 
 Requires Python 3.9+.
@@ -114,16 +121,16 @@ Use one of:
 
 ```bash
 # Safer targeting: PID
-suy-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5
+agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5
 
 # Convenience targeting: process name
-suy-warden --scope examples/scope.generic.yaml --agent-name my-agent --poll 0.5
+agent-warden --scope examples/scope.generic.yaml --agent-name my-agent --poll 0.5
 ```
 
 ### 4) Generate report after a run
 
 ```bash
-suy-forensic-report --last-hours 24
+agent-warden-forensic --last-hours 24
 ```
 
 ---

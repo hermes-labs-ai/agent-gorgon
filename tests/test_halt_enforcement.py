@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 import psutil
 
-from suy_sideguy.warden import (
+from agent_warden.warden import (
     ActionType,
     AgentAction,
     Killswitch,

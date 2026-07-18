@@ -9,7 +9,7 @@ import pathlib
 
 import pytest
 
-from suy_sideguy.warden import Scope
+from agent_warden.warden import Scope
 
 EXAMPLES = pathlib.Path(__file__).resolve().parents[1] / "examples"
 

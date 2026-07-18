@@ -27,7 +27,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 
-from suy_sideguy.warden import (
+from agent_warden.warden import (
     ActionType,
     AgentAction,
     LLMJudge,
@@ -142,7 +142,7 @@ def test_llm_evaluate_returning_kill_is_coerced_to_flag(monkeypatch):
         {"verdict": "KILL", "reason": "model tried to kill", "confidence": 0.99}
     )
     monkeypatch.setattr(
-        "suy_sideguy.warden.httpx.AsyncClient",
+        "agent_warden.warden.httpx.AsyncClient",
         lambda *a, **k: _FakeClient(content),
     )
     v = asyncio.run(judge.evaluate(_netout(), "scope-summary"))

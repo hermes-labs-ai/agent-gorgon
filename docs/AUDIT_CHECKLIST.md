@@ -29,5 +29,5 @@ Use this checklist before switching from audit-only to stronger enforcement.
 - [ ] Operator override path tested and audited
 
 ## F) Report Output
-- [ ] `suy-forensic-report --last-hours 24` exported and archived
+- [ ] `agent-warden-forensic --last-hours 24` exported and archived
 - [ ] Summary shared with: action counts, flags, incidents, kill reasons, overrides

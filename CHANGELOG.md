@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.5] - 2026-07-06
 
+### Changed
+- **Agent Warden is the canonical identity** — the primary distribution is `agent-warden`,
+  imports use `agent_warden`, and the CLIs are `agent-warden` and `agent-warden-forensic`.
+- **Suy Sideguy is a time-bounded compatibility shim** — `suy-sideguy==0.1.5` depends on
+  exactly `agent-warden==0.1.5`, forwards historical imports and commands, and emits
+  deprecation diagnostics. The proposed default removal is Agent Warden 0.4.0, no earlier
+  than 2026-10-10 and only after the owner records the release flip.
+
 ### Fixed
 - **HALT now enforces** — a HALT verdict SIGSTOPs the agent process tree (reversible pause, signalled once, forensic halt report written). Previously HALT only logged and the agent kept running, contradicting the documented "freeze + alert" behavior.
 - **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.

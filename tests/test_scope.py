@@ -2,7 +2,7 @@ import tempfile
 
 import pytest
 
-from suy_sideguy.warden import Scope, Verdict
+from agent_warden.warden import Scope, Verdict
 
 
 SCOPE_YAML = """

@@ -8,8 +8,8 @@ Use this repo when you need to:
 - generate forensic evidence after a policy incident
 
 Primary commands:
-- `suy-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
-- `suy-forensic-report --last-hours 24`
+- `agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
+- `agent-warden-forensic --last-hours 24`
 
 Outputs:
 - runtime verdicts
@@ -24,4 +24,3 @@ Do not use this repo as:
 ## About Hermes Labs
 
 Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. More at [hermes-labs.ai](https://hermes-labs.ai).
-

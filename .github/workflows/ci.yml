@@ -32,7 +32,9 @@ jobs:
         run: pytest -q
 
       - name: Build package
-        run: python -m build
+        run: |
+          python -m build
+          python -m build compat/suy-sideguy
 
   ruff:
     runs-on: ubuntu-latest
@@ -72,4 +74,4 @@ jobs:
           pip install -e .[dev]
 
       - name: Mypy
-        run: mypy suy_sideguy
+        run: mypy agent_warden

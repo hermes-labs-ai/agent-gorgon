@@ -3,7 +3,7 @@ requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "suy-sideguy"
+name = "agent-warden"
 version = "0.1.5"
 description = "Runtime policy guard for autonomous AI agents with user-space enforcement and forensic reporting."
 readme = "README.md"
@@ -39,8 +39,8 @@ dev = [
 ]
 
 [project.scripts]
-suy-warden = "suy_sideguy.warden:entrypoint"
-suy-forensic-report = "suy_sideguy.forensic_report:main"
+agent-warden = "agent_warden.warden:entrypoint"
+agent-warden-forensic = "agent_warden.forensic_report:main"
 
 [project.urls]
 Homepage = "https://github.com/hermes-labs-ai/agent-warden"
@@ -50,7 +50,7 @@ Issues = "https://github.com/hermes-labs-ai/agent-warden/issues"
 Changelog = "https://github.com/hermes-labs-ai/agent-warden/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["suy_sideguy"]
+packages = ["agent_warden"]
 
 [tool.ruff]
 line-length = 100
@@ -58,6 +58,6 @@ target-version = "py39"
 
 [tool.mypy]
 python_version = "3.9"
-files = ["suy_sideguy"]
+files = ["agent_warden"]
 ignore_missing_imports = true
 warn_unused_ignores = true

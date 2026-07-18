@@ -1,4 +1,4 @@
-"""suy_sideguy package."""
+"""Agent Warden runtime policy package."""
 
 __version__ = "0.1.5"
 

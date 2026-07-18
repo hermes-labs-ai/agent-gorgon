@@ -16,7 +16,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-from suy_sideguy.warden import (
+from agent_warden.warden import (
     ActionType,
     AgentAction,
     Verdict,

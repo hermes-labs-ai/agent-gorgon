@@ -9,6 +9,6 @@
 - Prompt color: `#60a5fa`
 - Body color: `#e5e7eb`
 - Accent colors: green `#34d399`, yellow `#fbbf24`, red `#f87171`
-- Command shown: `suy-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
+- Command shown: `agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
 - Exact output shown: the contents of `assets/preview-source.txt`
 - Rule: use real CLI output only, no mock UI, no GIFs, no stock art

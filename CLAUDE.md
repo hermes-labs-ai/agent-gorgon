@@ -1,4 +1,4 @@
-# agent-warden (PyPI package: suy-sideguy)
+# agent-warden
 
 Runtime safety guard for autonomous AI agents. Monitors process/file/network behavior, applies policy rules, terminates violations.
 
@@ -7,16 +7,16 @@ Runtime safety guard for autonomous AI agents. Monitors process/file/network beh
 - `pip install -e ".[dev]"` -- Install with dev deps
 - `pytest` -- Run all 90 tests
 - `pytest tests/test_scope.py -v` -- Single test module
-- `ruff check suy_sideguy/` -- Lint
-- `mypy suy_sideguy/` -- Type check
+- `ruff check agent_warden/` -- Lint
+- `mypy agent_warden/` -- Type check
 - `python -m build` -- Build wheel + sdist
-- `suy-warden --scope examples/scope.openclaw.yaml --agent-pid 12345 --poll 0.5` -- Run warden
-- `suy-forensic-report --last-hours 24` -- Generate incident report
+- `agent-warden --scope examples/scope.openclaw.yaml --agent-pid 12345 --poll 0.5` -- Run warden
+- `agent-warden-forensic --last-hours 24` -- Generate incident report
 
 ## Architecture
 
 ```
-suy_sideguy/
+agent_warden/
   warden.py          # Main loop: observe → evaluate → enforce (entry point)
   observer.py        # Process/file/network monitoring via psutil
   policy.py          # Rule evaluation engine

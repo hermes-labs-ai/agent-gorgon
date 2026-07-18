@@ -1,4 +1,4 @@
-# Generic starter scope for suy-sideguy.
+# Generic starter scope for agent-warden.
 # NOTE: the Scope parser reads the NESTED schema below (filesystem/network/
 # process/behavior). A flat schema (allow_read/deny_write/deny_exec) is NOT
 # recognized and will load empty allowlists — the warden then enforces nothing.

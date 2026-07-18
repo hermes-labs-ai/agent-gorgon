@@ -7,13 +7,13 @@ import os
 import tempfile
 
 
-from suy_sideguy.warden import (
+from agent_warden.warden import (
     ActionType,
     AgentAction,
     Verdict,
     Warden,
 )
-from suy_sideguy.intent_match import (
+from agent_warden.intent_match import (
     check_intent_match,
     classify_instruction,
 )
@@ -81,7 +81,7 @@ def test_halt_verdict_value_is_string():
 
 def test_halt_verdict_importable_from_enforcement():
     """Verdict (with HALT) must be importable directly from enforcement module."""
-    from suy_sideguy.warden import Verdict as EnfVerdict
+    from agent_warden.warden import Verdict as EnfVerdict
     assert EnfVerdict.HALT is Verdict.HALT
 
 

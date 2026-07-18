@@ -18,8 +18,8 @@
 
 ```bash
 pip install -e ".[dev]"
-suy-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5
-suy-forensic-report --last-hours 24
+agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5
+agent-warden-forensic --last-hours 24
 pytest -q
 ```
 

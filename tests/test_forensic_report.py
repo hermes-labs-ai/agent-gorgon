@@ -1,4 +1,4 @@
-from suy_sideguy.forensic_report import parse_ts
+from agent_warden.forensic_report import parse_ts
 
 
 def test_parse_ts_accepts_iso_and_zulu():

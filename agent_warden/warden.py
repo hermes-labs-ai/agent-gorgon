@@ -151,7 +151,7 @@ class Scope:
         if _present_flat:
             raise ValueError(
                 f"Scope '{scope_path}' uses an unrecognized flat schema "
-                f"({sorted(_present_flat)}); suy-sideguy reads a NESTED schema "
+                f"({sorted(_present_flat)}); agent-warden reads a NESTED schema "
                 f"(filesystem/network/process/behavior). As written this scope would "
                 f"enforce NOTHING. See examples/scope.generic.yaml."
             )
