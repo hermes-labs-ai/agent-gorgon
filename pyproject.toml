@@ -58,5 +58,6 @@ target-version = "py39"
 [tool.mypy]
 python_version = "3.9"
 files = ["agent_warden"]
+follow_imports = "skip"
 ignore_missing_imports = true
 warn_unused_ignores = true
