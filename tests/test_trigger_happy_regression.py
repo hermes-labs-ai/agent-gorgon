@@ -168,7 +168,22 @@ def test_shell_wrapped_home_parameter_and_dot_glob_kill():
         "sh -c 'rm -rf ${HOME:?}/'",
         "sh -c 'rm -rf ${HOME:-/}'",
         "sh -c 'rm -rf ${HOME-/}'",
+        "sh -c 'rm -rf ${HOME:-/tmp/project}'",
         "sh -c 'rm -rf ~/.*'",
+    ):
+        assert w._rm_rf_protected_target(cmd) is not None, cmd
+        assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict == Verdict.KILL, cmd
+
+
+def test_shell_prefixes_and_home_descendants_cannot_hide_protected_delete():
+    """Exact material acceptance-review reproducers must all KILL."""
+    w = _cred_warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'VAR=1 rm -rf --no-preserve-root /'",
+        "sh -c 'exec rm -rf ~/.ssh'",
+        "sh -c 'rm -rf ${HOME:?}/.ssh'",
+        "sh -c 'rm -rf \"${HOME:?}\"/.ssh'",
     ):
         assert w._rm_rf_protected_target(cmd) is not None, cmd
         assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict == Verdict.KILL, cmd
@@ -217,7 +232,22 @@ def test_shell_home_lookalikes_remain_project_scoped():
     for cmd in (
         "sh -c 'rm -rf ~/project/.*'",
         "sh -c 'rm -rf ${HOME_DIR:?}/'",
-        "sh -c 'rm -rf ${HOME:-/tmp/project}'",
+    ):
+        assert w._rm_rf_protected_target(cmd) is None, cmd
+        assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict != Verdict.KILL, cmd
+
+
+def test_shell_prefix_and_home_descendant_project_controls_do_not_kill():
+    """Prefix normalization must preserve ordinary project cleanup behavior."""
+    w = _cred_warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'VAR=1 rm -rf build'",
+        "sh -c 'exec rm -rf ~/project'",
+        "sh -c 'command rm -rf ~/project'",
+        "sh -c 'rm -rf ${HOME:?}/project'",
+        "sh -c 'BAD-NAME=1 rm -rf /'",
+        "sh -c 'command -v rm'",
     ):
         assert w._rm_rf_protected_target(cmd) is None, cmd
         assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict != Verdict.KILL, cmd

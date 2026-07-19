@@ -1282,6 +1282,7 @@ class Warden:
         # operation as ``rm -rf ~``. Keep the accepted suffixes exact so
         # project-scoped descendants and similarly named variables do not
         # become false-positive KILLs.
+        shell_home_candidate: str | None = None
         for prefix in ("${HOME:?", "${HOME?"):
             if raw.startswith(prefix):
                 closing_brace = raw.rfind("}")
@@ -1290,11 +1291,18 @@ class Warden:
                     and raw[closing_brace + 1:] in {"", "/", "/*", "/.*"}
                 ):
                     return True
-        # Shell default/assignment expansions can also resolve to a protected
-        # root.  Keep this narrow: only a literal ``/`` fallback is accepted,
-        # and only when the expansion itself (or all of its direct children)
-        # is the rm operand.  Project defaults such as ${HOME:-/tmp/project}
-        # therefore remain ordinary project cleanup targets.
+                if closing_brace >= len(prefix):
+                    # A successful ${HOME:?word}/${HOME?word} expansion is
+                    # necessarily HOME. Reconstruct only that known branch so
+                    # descendants can flow through the ordinary forbidden-root
+                    # matcher; do not attempt to interpret general shell
+                    # parameter expansion syntax here.
+                    shell_home_candidate = "~" + raw[closing_brace + 1:]
+                break
+        # Shell default/assignment expansions resolve to HOME under the normal
+        # supported environment where HOME is set. Preserve the prior literal
+        # root-fallback check, and also reconstruct that known HOME branch so a
+        # descendant reaches the same forbidden-root matcher as ``~/.ssh``.
         for prefix in ("${HOME:-", "${HOME-", "${HOME:=", "${HOME="):
             if raw.startswith(prefix):
                 closing_brace = raw.find("}", len(prefix))
@@ -1304,7 +1312,11 @@ class Warden:
                     and raw[closing_brace + 1:] in {"", "/", "/*", "/.*"}
                 ):
                     return True
-        expanded = os.path.expandvars(os.path.expanduser(raw))
+                if closing_brace >= len(prefix):
+                    shell_home_candidate = "~" + raw[closing_brace + 1:]
+                break
+        match_path = shell_home_candidate or raw
+        expanded = os.path.expandvars(os.path.expanduser(match_path))
         normed = os.path.normpath(expanded)
 
         # Filesystem root
@@ -1332,6 +1344,54 @@ class Warden:
                     return True
         return False
 
+    @staticmethod
+    def _is_shell_assignment_word(token: str) -> bool:
+        """True for a leading POSIX-style ``NAME=value`` assignment word."""
+        name, separator, _value = token.partition("=")
+        if not separator or not name:
+            return False
+        if not (name[0] == "_" or "A" <= name[0] <= "Z" or "a" <= name[0] <= "z"):
+            return False
+        return all(
+            char == "_" or "A" <= char <= "Z" or "a" <= char <= "z"
+            or "0" <= char <= "9"
+            for char in name[1:]
+        )
+
+    @classmethod
+    def _strip_shell_command_prefixes(cls, tokens: list[str]) -> list[str]:
+        """Expose the executable in one shell simple command.
+
+        This intentionally handles only the realistic prefixes admitted by the
+        protected-delete threat model: leading assignment words and the
+        ``exec``/``command`` builtins. It is not a general shell parser.
+        """
+        index = 0
+        while index < len(tokens) and cls._is_shell_assignment_word(tokens[index]):
+            index += 1
+
+        if index < len(tokens) and os.path.basename(tokens[index]) == "exec":
+            index += 1
+            while index < len(tokens):
+                if tokens[index] == "--":
+                    index += 1
+                    break
+                if tokens[index] in {"-c", "-l"}:
+                    index += 1
+                    continue
+                if tokens[index] == "-a" and index + 1 < len(tokens):
+                    index += 2
+                    continue
+                break
+        elif index < len(tokens) and os.path.basename(tokens[index]) == "command":
+            index += 1
+            if index < len(tokens) and tokens[index] == "-p":
+                index += 1
+            if index < len(tokens) and tokens[index] == "--":
+                index += 1
+
+        return tokens[index:]
+
     def _rm_rf_protected_target(self, command: str) -> str | None:
         """If `command` is a recursive rm whose target is a protected root,
         return that target (→ KILL). Otherwise None. Routine recursive deletes
@@ -1342,6 +1402,7 @@ class Warden:
             tokens = shlex.split(command)
         except ValueError:
             tokens = command.split()
+        tokens = self._strip_shell_command_prefixes(tokens)
         if not tokens:
             return None
 
