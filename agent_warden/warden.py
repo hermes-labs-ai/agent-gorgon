@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import glob
-import heapq
 import json
 import os
 import sys
@@ -430,6 +429,15 @@ class IncidentLogger:
         self.action_log_path = self.log_dir / f"actions_{self.session_id}.jsonl"
         self.incident_dir = self.log_dir / "incidents"
         self.incident_dir.mkdir(exist_ok=True)
+        self._report_sequence = 0
+
+    def _next_report_path(self, kind: str) -> Path:
+        """Collision-safe report path, including under a frozen wall clock."""
+        self._report_sequence += 1
+        return self.incident_dir / (
+            f"{kind}_{self.session_id}_{time.time_ns()}_"
+            f"{self._report_sequence:06d}.json"
+        )
         
     def log_action(self, verdict: WardenVerdict):
         entry = {
@@ -448,7 +456,7 @@ class IncidentLogger:
                                   kill_result: dict | None = None,
                                   rollback_result: dict | None = None) -> str:
         
-        report_path = self.incident_dir / f"incident_{self.session_id}_{int(time.time())}.json"
+        report_path = self._next_report_path("incident")
         
         timeline = []
         for v in all_verdicts:
@@ -523,9 +531,7 @@ class IncidentLogger:
     def generate_halt_report(self, halt_verdict: WardenVerdict,
                              all_verdicts: list, suspend_result: dict) -> str:
         """Forensic record for a HALT suspension attempt."""
-        report_path = (
-            self.incident_dir / f"halt_{self.session_id}_{int(time.time())}.json"
-        )
+        report_path = self._next_report_path("halt")
         suspended = bool(
             suspend_result.get("suspended")
             and suspend_result.get("pids_suspended")
@@ -816,13 +822,21 @@ class ProcessObserver:
             if (wildcard_index is not None
                     and wildcard_index < len(parts) - 1
                     and parts[wildcard_index] != "**"):
-                # Expand one wildcard directory level. iglob is intentionally
-                # non-recursive and consumed under _scope_root_cap.
+                # Expand one wildcard directory level. Consume only accepted
+                # concrete directories through cap+1; do not sort by consuming
+                # an unbounded glob iterator before the cap can fire.
                 component_glob = os.sep.join(parts[:wildcard_index + 1])
-                candidates = heapq.nsmallest(
-                    self._scope_root_cap + 1,
-                    glob.iglob(component_glob, recursive=False),
-                )
+                bounded_candidates: list[str] = []
+                for candidate in glob.iglob(component_glob, recursive=False):
+                    # A wildcard-matched symlink is not an intended concrete
+                    # workspace root: following it could escape the scope.
+                    if os.path.islink(candidate) or not os.path.isdir(candidate):
+                        continue
+                    bounded_candidates.append(candidate)
+                    if len(roots) + len(bounded_candidates) > self._scope_root_cap:
+                        self._scope_root_expansion_capped = True
+                        return roots
+                candidates = sorted(bounded_candidates)
             else:
                 candidates = (literal_root,)
 
@@ -873,22 +887,37 @@ class ProcessObserver:
             if d in seen_dirs:
                 continue
             seen_dirs.add(d)
+            directory_fd: int | None = None
             try:
-                with os.scandir(d) as it:
+                # Open the directory itself without following a symlink. This
+                # closes the discovery-to-scan swap window for wildcard roots
+                # and for descendant directories queued from prior scans.
+                open_flags = os.O_RDONLY
+                open_flags |= getattr(os, "O_DIRECTORY", 0)
+                open_flags |= getattr(os, "O_NOFOLLOW", 0)
+                directory_fd = os.open(d, open_flags)
+                with os.scandir(directory_fd) as it:
                     for entry in it:
                         try:
+                            entry_path = os.path.join(d, entry.name)
                             # follow_symlinks=False avoids symlink cycles and
                             # double-walking the /tmp -> /private/tmp alias.
                             if entry.is_dir(follow_symlinks=False):
-                                stack.append(entry.path)
+                                stack.append(entry_path)
                             else:
-                                found.add(entry.path)
+                                found.add(entry_path)
                                 if len(found) > self._snapshot_file_cap:
                                     return found, True
                         except OSError:
                             continue  # per-entry stat failure → skip, keep going
             except OSError:
                 continue  # per-dir failure (missing/permission) → fail-open
+            finally:
+                if directory_fd is not None:
+                    try:
+                        os.close(directory_fd)
+                    except OSError:
+                        pass
         return found, False
 
     def _diff_scope_filesystem(self, now: str, actions: list[AgentAction]) -> None:
@@ -1081,6 +1110,10 @@ class Warden:
         self.start_time = time.time()
         self.running = False
         self.killed = False
+        # A failed one-shot KILL observation is de-duplicated by the observer.
+        # Persist its verdict so the next poll retries enforcement without
+        # requiring the underlying event to be emitted again.
+        self.pending_kill: WardenVerdict | None = None
         # HALT gives a *reversible* pause (SIGSTOP). Signal the tree ONCE, then
         # only log on later HALTs — no per-poll signal spam.
         self.suspended = False
@@ -1755,6 +1788,10 @@ class Warden:
             f"pids={kill_result.get('pids_terminated', [])} "
             f"errors={kill_result.get('errors', [])}"
         )
+        self.killed = bool(
+            kill_result.get("killed") and kill_result.get("pids_terminated")
+        )
+        self.pending_kill = None if self.killed else verdict
         
         rollback_result = self.killswitch.attempt_rollback(verdict.action)
         self.log.info(f"   Rollback: {rollback_result['details']}")
@@ -1773,10 +1810,7 @@ class Warden:
             json.dump(report, f, indent=2)
         
         self.log.critical(f"   📋 Report: {report_path}")
-        self.killed = bool(
-            kill_result.get("killed") and kill_result.get("pids_terminated")
-        )
-    
+
     async def run(self):
         """Main monitoring loop."""
         
@@ -1806,6 +1840,15 @@ class Warden:
                 if not self.observer.is_agent_alive():
                     self.log.info("Agent ended. Warden shutting down.")
                     break
+
+                if self.pending_kill is not None:
+                    self.log.warning(
+                        "Retrying prior failed KILL without waiting for a new "
+                        "observer event."
+                    )
+                    await self.execute_kill(self.pending_kill)
+                    if self.killed:
+                        break
                 
                 # Check behavioral triggers
                 for check in (self._check_rate_limit, self._check_flag_accumulation):

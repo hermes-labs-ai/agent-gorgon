@@ -181,6 +181,26 @@ def test_execute_halt_retries_after_partial_child_suspend(monkeypatch, tmp_path)
     assert calls["n"] == 2
 
 
+def test_retryable_halt_reports_do_not_overwrite_in_same_second(
+    monkeypatch, tmp_path
+):
+    w = _warden(tmp_path)
+    monkeypatch.setattr(
+        w.killswitch,
+        "suspend_agent",
+        lambda: {"suspended": False, "pids_suspended": [], "errors": ["denied"]},
+    )
+    monkeypatch.setattr(time, "time", lambda: 1_700_000_000.0)
+    monkeypatch.setattr(time, "time_ns", lambda: 1_700_000_000_000_000_000)
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+    asyncio.run(w.execute_halt(_halt_verdict()))
+
+    reports = list((tmp_path / "logs" / "incidents").glob("halt_*.json"))
+    assert len(reports) == 2
+    assert reports[0].name != reports[1].name
+
+
 def test_failed_halt_report_does_not_claim_agent_suspended(monkeypatch, tmp_path):
     w = _warden(tmp_path)
     monkeypatch.setattr(
@@ -461,3 +481,45 @@ def test_forbidden_credential_read_still_kills_on_read():
     w.judge.available = False
     v = asyncio.run(w.evaluate_action(_read("/tmp/secret/token.txt")))
     assert v.verdict == Verdict.KILL
+
+
+def test_failed_one_shot_kill_is_retried_without_new_observation(
+    monkeypatch, tmp_path
+):
+    w = _warden(tmp_path)
+    w.enable_llm = False
+    kill_results = iter([
+        {"killed": False, "pids_terminated": [], "errors": ["denied"]},
+        {"killed": True, "pids_terminated": [os.getpid()], "errors": []},
+    ])
+    kill_calls = {"count": 0}
+
+    def fail_then_succeed():
+        kill_calls["count"] += 1
+        return next(kill_results)
+
+    class OneShotObserver:
+        def __init__(self):
+            self.alive_calls = 0
+            self.observe_calls = 0
+
+        def is_agent_alive(self):
+            self.alive_calls += 1
+            return self.alive_calls <= 2
+
+        def observe(self):
+            self.observe_calls += 1
+            if self.observe_calls == 1:
+                return [_read("/tmp/secret/token.txt", pid=os.getpid())]
+            return []
+
+    observer = OneShotObserver()
+    w.observer = observer
+    monkeypatch.setattr(w.killswitch, "kill_agent", fail_then_succeed)
+
+    asyncio.run(w.run())
+
+    assert kill_calls["count"] == 2
+    assert observer.observe_calls == 1
+    assert w.killed is True
+    assert w.pending_kill is None

@@ -12,6 +12,8 @@ import tempfile
 import time
 from datetime import datetime, timezone
 
+import agent_warden.warden as warden_module
+
 from agent_warden.warden import (
     ActionType,
     AgentAction,
@@ -110,6 +112,53 @@ def test_wildcard_root_expansion_cap_flags_without_partial_baseline(tmp_path):
     assert actions[0].action_type == ActionType.UNKNOWN
     assert actions[0].details["root_cap"] == 2
     assert obs._scope_snapshot is None
+
+
+def test_wildcard_root_cap_stops_consuming_after_cap_plus_one(
+    monkeypatch, tmp_path
+):
+    for i in range(6):
+        (tmp_path / f"my-agent_{i}").mkdir()
+    obs = ProcessObserver(os.getpid())
+    obs._scope_root_cap = 2
+    real_iglob = warden_module.glob.iglob
+    consumed = {"count": 0}
+
+    def bounded_probe(*args, **kwargs):
+        for match in real_iglob(*args, **kwargs):
+            consumed["count"] += 1
+            if consumed["count"] > obs._scope_root_cap + 1:
+                raise AssertionError("wildcard iterator was fully consumed past cap")
+            yield match
+
+    monkeypatch.setattr(warden_module.glob, "iglob", bounded_probe)
+
+    roots = obs._compute_scope_roots(_FakeScope([f"{tmp_path}/my-agent_*/**"]))
+
+    assert roots == []
+    assert obs._scope_root_expansion_capped is True
+    assert consumed["count"] == obs._scope_root_cap + 1
+
+
+def test_wildcard_scope_rejects_symlink_root_escape(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text("secret")
+    safe = tmp_path / "my-agent_safe"
+    safe.mkdir()
+    visible = safe / "visible.txt"
+    visible.write_text("visible")
+    escaped = tmp_path / "my-agent_escape"
+    escaped.symlink_to(outside, target_is_directory=True)
+
+    obs = _observer([f"{tmp_path}/my-agent_*/**"])
+    files, capped = obs._snapshot_scope_files()
+
+    assert capped is False
+    assert obs._scope_roots == [str(safe)]
+    assert files == {str(visible)}
+    assert str(secret) not in files
 
 
 def test_filesystem_root_glob_is_excluded():
