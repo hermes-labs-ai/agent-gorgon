@@ -1224,10 +1224,15 @@ class Warden:
 
         Scope-directory diffs deliberately record useful evidence without
         attributing the change to the monitored process. They must therefore
-        remain visible as FLAGs while staying outside the opt-in accumulator
-        that can escalate attributed flags to SIGKILL.
+        remain visible as FLAGs while staying outside the opt-in accumulator.
+        Rate-limit FLAGs are attributed, but are explicitly only posture
+        signals: repeated rate observations must not acquire SIGKILL authority
+        through the generic FLAG accumulator.
         """
-        return verdict.action.details.get("detected_by") != "scope_diff"
+        return (
+            verdict.action.details.get("detected_by") != "scope_diff"
+            and verdict.action.target != "rate_limit_exceeded"
+        )
 
     @staticmethod
     def _forbidden_path_root(pattern: str) -> str:
@@ -1264,9 +1269,27 @@ class Warden:
         # to deleting that root's contents. Keep this deliberately exact:
         # project-scoped globs such as ``build/*`` and ``~/project/*`` remain
         # ordinary cleanup targets.
-        protected_roots = ("~", "$HOME", "${HOME}", "/*", "~/*", "$HOME/*", "${HOME}/*")
+        protected_roots = (
+            "~", "$HOME", "${HOME}", "/*",
+            "~/*", "$HOME/*", "${HOME}/*",
+            "~/.*", "$HOME/.*", "${HOME}/.*",
+        )
         if raw in protected_roots:
             return True
+        # ${HOME:?word} and ${HOME?word} either expand to HOME or abort the
+        # shell command. Therefore deleting that expansion itself (or every
+        # direct child, including dot entries) is the same protected-root
+        # operation as ``rm -rf ~``. Keep the accepted suffixes exact so
+        # project-scoped descendants and similarly named variables do not
+        # become false-positive KILLs.
+        for prefix in ("${HOME:?", "${HOME?"):
+            if raw.startswith(prefix):
+                closing_brace = raw.rfind("}")
+                if (
+                    closing_brace >= len(prefix)
+                    and raw[closing_brace + 1:] in {"", "/", "/*", "/.*"}
+                ):
+                    return True
         expanded = os.path.expandvars(os.path.expanduser(raw))
         normed = os.path.normpath(expanded)
 
@@ -1862,7 +1885,8 @@ class Warden:
                         break
                     # Non-kill behavioral signal (e.g. rate spike): record + raise
                     # posture. Never SIGKILL on a rate spike alone.
-                    self.flag_timestamps.append(time.time())
+                    if self._flag_counts_toward_accumulation(v):
+                        self.flag_timestamps.append(time.time())
                     self.log.warning(
                         f"⚠️  FLAG [{len(self.flag_timestamps)}/"
                         f"{self.scope.flag_threshold}]: {v.reason}"

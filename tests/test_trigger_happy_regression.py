@@ -160,6 +160,18 @@ def test_shell_wrapped_rm_rf_protected_roots_kill():
         assert v.verdict == Verdict.KILL, cmd
 
 
+def test_shell_wrapped_home_parameter_and_dot_glob_kill():
+    """Shell-expanded home-root forms cannot bypass the protected-root rule."""
+    w = _warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf ${HOME:?}/'",
+        "sh -c 'rm -rf ~/.*'",
+    ):
+        assert w._rm_rf_protected_target(cmd) is not None, cmd
+        assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict == Verdict.KILL, cmd
+
+
 def test_shell_compound_commands_cannot_hide_protected_root_delete():
     """Unquoted shell operators terminate commands; they are not path bytes."""
     w = _warden()
@@ -194,6 +206,18 @@ def test_shell_wrapped_rm_rf_project_dirs_do_not_kill():
     ):
         v = asyncio.run(w.evaluate_action(_exec(cmd)))
         assert v.verdict != Verdict.KILL, cmd
+
+
+def test_shell_home_lookalikes_remain_project_scoped():
+    """The shell-form protection must not turn ordinary project cleanup fatal."""
+    w = _warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf ~/project/.*'",
+        "sh -c 'rm -rf ${HOME_DIR:?}/'",
+    ):
+        assert w._rm_rf_protected_target(cmd) is None, cmd
+        assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict != Verdict.KILL, cmd
 
 
 def test_shell_positional_args_are_not_reinterpreted_as_rm_targets():

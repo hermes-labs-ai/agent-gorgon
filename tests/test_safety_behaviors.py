@@ -197,6 +197,32 @@ def test_rate_limit_flags_not_kills_when_exceeded(monkeypatch):
     assert v.verdict != Verdict.KILL
 
 
+def test_rate_limit_flag_never_arms_opt_in_kill_accumulator(monkeypatch):
+    """Exercise the behavioral-check loop, not only the rate check in isolation."""
+    monkeypatch.setenv("WARDEN_KILL_ON_FLAGS", "1")
+    w = _warden()
+    now = 100.0
+    monkeypatch.setattr("time.time", lambda: now)
+    w.scope.flag_threshold = 1
+    w.action_timestamps = [now - 1] * (w.scope.max_actions_per_minute + 1)
+
+    alive = iter((True, False))
+    monkeypatch.setattr(w.observer, "is_agent_alive", lambda: next(alive))
+    monkeypatch.setattr(w.observer, "observe", lambda: [])
+    kill_calls = []
+
+    async def fake_execute_kill(verdict):
+        kill_calls.append(verdict)
+        w.killed = True
+
+    monkeypatch.setattr(w, "execute_kill", fake_execute_kill)
+
+    asyncio.run(w.run())
+
+    assert kill_calls == []
+    assert w.flag_timestamps == []
+
+
 def test_llm_unavailable_for_unknown_command_flags():
     w = _warden()
     w.judge.available = False
