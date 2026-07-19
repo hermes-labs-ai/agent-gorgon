@@ -1124,7 +1124,12 @@ class Warden:
         Non-protected project paths (node_modules, build/, dist, .venv,
         __pycache__) are NOT protected."""
         raw = path.strip()
-        if raw in ("~", "$HOME", "${HOME}"):
+        # A recursive delete of every child of a protected root is equivalent
+        # to deleting that root's contents. Keep this deliberately exact:
+        # project-scoped globs such as ``build/*`` and ``~/project/*`` remain
+        # ordinary cleanup targets.
+        protected_roots = ("~", "$HOME", "${HOME}", "/*", "~/*", "$HOME/*", "${HOME}/*")
+        if raw in protected_roots:
             return True
         expanded = os.path.expandvars(os.path.expanduser(raw))
         normed = os.path.normpath(expanded)

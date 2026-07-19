@@ -88,7 +88,13 @@ def gather(inp: Inputs) -> dict[str, Any]:
     for f in incident_files:
         try:
             doc = json.loads(f.read_text(encoding="utf-8"))
-            ts = parse_ts(doc.get("incident_report", {}).get("generated_at"))
+            ts = None
+            for report_key in ("incident_report", "halt_report"):
+                report = doc.get(report_key)
+                if isinstance(report, dict):
+                    ts = parse_ts(report.get("generated_at"))
+                    if ts:
+                        break
             if ts and ts >= since:
                 doc["_source"] = str(f)
                 incidents.append(doc)
