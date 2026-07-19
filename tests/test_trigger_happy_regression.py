@@ -166,6 +166,8 @@ def test_shell_wrapped_home_parameter_and_dot_glob_kill():
     w.judge.available = False
     for cmd in (
         "sh -c 'rm -rf ${HOME:?}/'",
+        "sh -c 'rm -rf ${HOME:-/}'",
+        "sh -c 'rm -rf ${HOME-/}'",
         "sh -c 'rm -rf ~/.*'",
     ):
         assert w._rm_rf_protected_target(cmd) is not None, cmd
@@ -215,6 +217,7 @@ def test_shell_home_lookalikes_remain_project_scoped():
     for cmd in (
         "sh -c 'rm -rf ~/project/.*'",
         "sh -c 'rm -rf ${HOME_DIR:?}/'",
+        "sh -c 'rm -rf ${HOME:-/tmp/project}'",
     ):
         assert w._rm_rf_protected_target(cmd) is None, cmd
         assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict != Verdict.KILL, cmd

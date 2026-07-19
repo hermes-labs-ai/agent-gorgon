@@ -439,6 +439,41 @@ def test_cred_read_then_netout_kills_across_pids_in_tree():
     assert v.verdict == Verdict.KILL
 
 
+def test_credential_read_write_handle_then_netout_kills():
+    """A '+' file mode permits reading even though the observer preserves the
+    stronger FILE_WRITE classification for the same handle."""
+    w = _warden()
+    w.judge.available = False
+    read_write = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.FILE_WRITE,
+        target="/tmp/safe/app.credentials",
+        details={"mode": "r+", "fd": 9},
+        source_pid=1000,
+    )
+    asyncio.run(w.evaluate_action(read_write))
+    v = asyncio.run(w.evaluate_action(_netout("8.8.8.8:443", pid=2000)))
+    assert v.verdict == Verdict.KILL
+    assert "exfil" in v.reason.lower()
+
+
+def test_same_poll_read_write_credential_precedes_network_enforcement():
+    w = _warden()
+    w.judge.available = False
+    read_write = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.FILE_WRITE,
+        target="/tmp/safe/app.credentials",
+        details={"mode": "r+", "fd": 9},
+        source_pid=1000,
+    )
+    actions = [_netout("8.8.8.8:443", pid=2000), read_write]
+    ordered = w._order_actions_for_enforcement(actions)
+    verdicts = [asyncio.run(w.evaluate_action(action)) for action in ordered]
+    assert ordered[0] is read_write
+    assert verdicts[-1].verdict == Verdict.KILL
+
+
 def test_same_poll_reversed_observer_order_still_kills_credential_exfil():
     """Observer collection order is not causal: a connection may be reported
     before the file read that armed it in the same poll. Enforcement must treat

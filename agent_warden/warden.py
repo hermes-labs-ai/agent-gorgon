@@ -1290,6 +1290,20 @@ class Warden:
                     and raw[closing_brace + 1:] in {"", "/", "/*", "/.*"}
                 ):
                     return True
+        # Shell default/assignment expansions can also resolve to a protected
+        # root.  Keep this narrow: only a literal ``/`` fallback is accepted,
+        # and only when the expansion itself (or all of its direct children)
+        # is the rm operand.  Project defaults such as ${HOME:-/tmp/project}
+        # therefore remain ordinary project cleanup targets.
+        for prefix in ("${HOME:-", "${HOME-", "${HOME:=", "${HOME="):
+            if raw.startswith(prefix):
+                closing_brace = raw.find("}", len(prefix))
+                if (
+                    closing_brace >= len(prefix)
+                    and raw[len(prefix):closing_brace] == "/"
+                    and raw[closing_brace + 1:] in {"", "/", "/*", "/.*"}
+                ):
+                    return True
         expanded = os.path.expandvars(os.path.expanduser(raw))
         normed = os.path.normpath(expanded)
 
@@ -1468,8 +1482,7 @@ class Warden:
             else:
                 del self.credential_reads[pid]
 
-        if (action.action_type == ActionType.FILE_READ
-                and self._is_credential_target(action.target)):
+        if self._is_credential_read_action(action):
             self.credential_reads.setdefault(action.source_pid, []).append(now)
             return None
 
@@ -1488,6 +1501,21 @@ class Warden:
             )
         return None
 
+    def _is_credential_read_action(self, action: AgentAction) -> bool:
+        """Whether an observation proves a credential could be read.
+
+        psutil reports read/write handles (``r+``, ``w+``, ``a+``) as one
+        mode.  The observer classifies them as FILE_WRITE to preserve their
+        mutation authority, but ``+`` also permits reads and must arm the
+        exfiltration correlation.
+        """
+        if not self._is_credential_target(action.target):
+            return False
+        if action.action_type == ActionType.FILE_READ:
+            return True
+        mode = str(action.details.get("mode", ""))
+        return action.action_type == ActionType.FILE_WRITE and "+" in mode
+
     def _order_actions_for_enforcement(
         self, actions: list[AgentAction]
     ) -> list[AgentAction]:
@@ -1502,8 +1530,7 @@ class Warden:
         credential_reads: list[AgentAction] = []
         others: list[AgentAction] = []
         for action in actions:
-            if (action.action_type == ActionType.FILE_READ
-                    and self._is_credential_target(action.target)):
+            if self._is_credential_read_action(action):
                 credential_reads.append(action)
             else:
                 others.append(action)
