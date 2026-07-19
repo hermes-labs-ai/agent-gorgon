@@ -276,6 +276,34 @@ def test_unattributed_diff_flags_never_arm_flag_accumulation(monkeypatch):
     assert w._check_flag_accumulation() is None
 
 
+def test_unattributed_diff_churn_never_enters_rate_derived_kill_path(monkeypatch):
+    """A snapshot diff cannot acquire kill authority through the rate reducer."""
+    monkeypatch.setenv("WARDEN_KILL_ON_FLAGS", "1")
+    w = _routing_warden()
+    w.scope.max_actions_per_minute = 1
+    w.scope.flag_threshold = 1
+
+    for i in range(10):
+        action = _diff_delete(f"/tmp/work/f-{i}.txt")
+        if w._action_counts_toward_rate_limit(action):
+            w.action_timestamps.append(time.time())
+
+    assert w.action_timestamps == []
+    assert w._check_rate_limit() is None
+    assert w._check_flag_accumulation() is None
+
+
+def test_attributed_actions_still_enter_rate_accounting():
+    w = _routing_warden()
+    attributed = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.FILE_READ,
+        target="/tmp/work/note.txt",
+        source_pid=os.getpid(),
+    )
+    assert w._action_counts_toward_rate_limit(attributed) is True
+
+
 def test_attributed_forbidden_delete_still_kills_when_not_from_diff():
     # Regression guard: the diff carve-out must NOT weaken attributed actions.
     w = _routing_warden()

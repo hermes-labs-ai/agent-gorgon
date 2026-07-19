@@ -149,6 +149,38 @@ def test_execute_halt_retries_after_failed_no_pid_suspend(monkeypatch, tmp_path)
     assert calls["n"] == 2
 
 
+def test_execute_halt_retries_after_partial_child_suspend(monkeypatch, tmp_path):
+    """A stopped parent plus a live child is not a completed HALT."""
+    w = _warden(tmp_path)
+    results = iter([
+        {
+            "suspended": True,
+            "pids_suspended": [4321],
+            "errors": ["Child 4322: denied"],
+        },
+        {
+            "suspended": True,
+            "pids_suspended": [4321, 4322],
+            "errors": [],
+        },
+    ])
+    calls = {"n": 0}
+
+    def partial_then_complete():
+        calls["n"] += 1
+        return next(results)
+
+    monkeypatch.setattr(w.killswitch, "suspend_agent", partial_then_complete)
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+    assert w.suspended is False
+    assert calls["n"] == 1
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+    assert w.suspended is True
+    assert calls["n"] == 2
+
+
 def test_failed_halt_report_does_not_claim_agent_suspended(monkeypatch, tmp_path):
     w = _warden(tmp_path)
     monkeypatch.setattr(
@@ -285,6 +317,38 @@ def test_suspend_agent_stops_parent_before_enumerating_and_drains_fork_race(
         ("child_suspend", 2001),
         ("child_suspend", 2002),
     ]
+
+
+def test_suspend_agent_reports_partial_child_failure_as_incomplete(monkeypatch):
+    """The aggregate completion bit covers every observed descendant."""
+
+    class DeniedChild:
+        pid = 2001
+
+        def suspend(self):
+            raise psutil.AccessDenied(self.pid)
+
+    class FakeParent:
+        pid = 2000
+
+        def __init__(self):
+            self.enumerations = 0
+
+        def suspend(self):
+            return None
+
+        def children(self, recursive=True):
+            self.enumerations += 1
+            return [DeniedChild()]
+
+    parent = FakeParent()
+    monkeypatch.setattr(psutil, "Process", lambda pid: parent)
+
+    result = Killswitch(parent.pid).suspend_agent()
+
+    assert result["suspended"] is False
+    assert result["pids_suspended"] == [2000]
+    assert result["errors"] == ["Child 2001: (pid=2001)"]
 
 
 # ══════════════════════════════════════════════════════════════════════════

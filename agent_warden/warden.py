@@ -697,6 +697,10 @@ class Killswitch:
         except Exception as e:
             errors.append(f"Suspend error: {e}")
 
+        # ``suspended`` is an aggregate completion bit, not merely a record that
+        # the parent accepted SIGSTOP. Any observed child/enumeration failure
+        # leaves the tree partially live and must keep HALT retryable.
+        suspended = suspended and not errors
         return {"suspended": suspended, "pids_suspended": pids_suspended,
                 "errors": errors}
 
@@ -1087,6 +1091,16 @@ class Warden:
                 action=action, evaluator="rule_engine"
             )
         return None
+
+    @staticmethod
+    def _action_counts_toward_rate_limit(action: AgentAction) -> bool:
+        """Whether an observation is attributable enough for rate enforcement.
+
+        Scope-directory diffs record ambient filesystem changes without proving
+        that the monitored process caused them. They remain forensic evidence,
+        but cannot acquire indirect kill authority through the rate reducer.
+        """
+        return action.details.get("detected_by") != "scope_diff"
     
     def _check_flag_accumulation(self):
         # Safer default for production rollout: do NOT auto-kill on flags unless explicitly enabled.
@@ -1623,7 +1637,11 @@ class Warden:
         )
         suspend_result = self.killswitch.suspend_agent()
         pids_suspended = suspend_result.get("pids_suspended", [])
-        self.suspended = bool(suspend_result.get("suspended") and pids_suspended)
+        self.suspended = bool(
+            suspend_result.get("suspended")
+            and pids_suspended
+            and not suspend_result.get("errors")
+        )
         suspend_result["suspended"] = self.suspended
         if self.suspended:
             self.log.critical(
@@ -1731,7 +1749,8 @@ class Warden:
                 
                 # Observe and evaluate
                 for action in self.observer.observe():
-                    self.action_timestamps.append(time.time())
+                    if self._action_counts_toward_rate_limit(action):
+                        self.action_timestamps.append(time.time())
                     verdict = await self.evaluate_action(action)
                     self.all_verdicts.append(verdict)
                     self.logger.log_action(verdict)
