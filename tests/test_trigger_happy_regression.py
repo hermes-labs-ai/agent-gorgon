@@ -160,6 +160,29 @@ def test_shell_wrapped_rm_rf_protected_roots_kill():
         assert v.verdict == Verdict.KILL, cmd
 
 
+def test_shell_compound_commands_cannot_hide_protected_root_delete():
+    """Unquoted shell operators terminate commands; they are not path bytes."""
+    w = _warden()
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf --no-preserve-root /; echo ok'",
+        "bash -lc 'echo start && rm -fr ~/* || true'",
+        "zsh -c 'printf ok | rm -Rf /*'",
+        "sh -c 'echo start\nrm -rf /'",
+    ):
+        v = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert v.verdict == Verdict.KILL, cmd
+
+
+def test_quoted_shell_operator_byte_remains_part_of_path():
+    """A quoted semicolon is data, not a command separator or filesystem root."""
+    w = _warden()
+    w.judge.available = False
+    cmd = 'sh -c "rm -rf \'/;\'"'
+    assert w._rm_rf_protected_target(cmd) is None
+    assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict != Verdict.KILL
+
+
 def test_shell_wrapped_rm_rf_project_dirs_do_not_kill():
     w = _warden()
     w.judge.available = False

@@ -646,7 +646,7 @@ class Killswitch:
         """SIGSTOP the agent process tree — a *reversible* pause (not SIGKILL).
         The stopped process can be resumed with SIGCONT or escalated to SIGKILL
         by a human/policy. Parent is stopped first so it cannot spawn new
-        children mid-suspend; already-enumerated children are stopped next.
+        children mid-suspend; descendants are then drained until stable.
         Fail-open per child so one gone/denied pid cannot abort the pause."""
         suspended = False
         pids_suspended: list[int] = []
@@ -654,7 +654,6 @@ class Killswitch:
 
         try:
             parent = psutil.Process(self.agent_pid)
-            children = parent.children(recursive=True)
 
             try:
                 parent.suspend()
@@ -665,14 +664,33 @@ class Killswitch:
             except Exception as e:
                 errors.append(f"Agent {self.agent_pid}: {e}")
 
-            for child in children:
+            # Enumerate only after the parent is stopped. Drain newly observed
+            # descendants until the tree is stable: a child may have forked in
+            # the instant before it was suspended, but once every discovered
+            # process is stopped no further descendants can appear.
+            seen_children: set[int] = set()
+            while True:
                 try:
-                    child.suspend()
-                    pids_suspended.append(child.pid)
+                    children = parent.children(recursive=True)
                 except psutil.NoSuchProcess:
-                    pass
+                    break
                 except Exception as e:
-                    errors.append(f"Child {child.pid}: {e}")
+                    errors.append(f"Child enumeration: {e}")
+                    break
+
+                pending = [child for child in children
+                           if child.pid not in seen_children]
+                if not pending:
+                    break
+                for child in pending:
+                    seen_children.add(child.pid)
+                    try:
+                        child.suspend()
+                        pids_suspended.append(child.pid)
+                    except psutil.NoSuchProcess:
+                        pass
+                    except Exception as e:
+                        errors.append(f"Child {child.pid}: {e}")
 
         except psutil.NoSuchProcess:
             errors.append(f"PID {self.agent_pid} already gone")
@@ -1094,6 +1112,17 @@ class Warden:
         return None
 
     @staticmethod
+    def _flag_counts_toward_accumulation(verdict: WardenVerdict) -> bool:
+        """Whether a FLAG has enough attribution to carry kill authority.
+
+        Scope-directory diffs deliberately record useful evidence without
+        attributing the change to the monitored process. They must therefore
+        remain visible as FLAGs while staying outside the opt-in accumulator
+        that can escalate attributed flags to SIGKILL.
+        """
+        return verdict.action.details.get("detected_by") != "scope_diff"
+
+    @staticmethod
     def _forbidden_path_root(pattern: str) -> str:
         """The concrete directory root of a forbidden_path glob. A CONTENTS glob
         like `~/.ssh/**` protects everything *inside* ~/.ssh but not the ~/.ssh
@@ -1181,7 +1210,15 @@ class Warden:
                     # string after -c. Later argv items become $0, $1, ... and
                     # must never be reinterpreted as rm operands.
                     payload = tokens[index + 1] if index + 1 < len(tokens) else ""
-                    return self._rm_rf_protected_target(payload) if payload else None
+                    if not payload:
+                        return None
+                    for segment in self._shell_command_segments(payload):
+                        protected = self._rm_rf_protected_target(
+                            shlex.join(segment)
+                        )
+                        if protected is not None:
+                            return protected
+                    return None
             return None
         if base_cmd != "rm":
             return None
@@ -1208,6 +1245,40 @@ class Warden:
             if self._is_protected_root(p):
                 return p
         return None
+
+    @staticmethod
+    def _shell_command_segments(payload: str) -> list[list[str]]:
+        """Tokenize simple shell compounds without confusing quoted operators.
+
+        This is intentionally not an execution parser. It only preserves the
+        security boundary needed by the recursive-delete rule: unquoted shell
+        control operators split commands, while quoted punctuation remains a
+        normal argument byte. The resulting argv-like segments are inspected,
+        never executed.
+        """
+        try:
+            lexer = shlex.shlex(
+                payload, posix=True, punctuation_chars=";&|()\n"
+            )
+            lexer.whitespace_split = True
+            lexer.whitespace = " \t\r"
+            lexer.commenters = ""
+            shell_tokens = list(lexer)
+        except ValueError:
+            return []
+
+        segments: list[list[str]] = []
+        current: list[str] = []
+        for token in shell_tokens:
+            if token and all(char in ";&|()\n" for char in token):
+                if current:
+                    segments.append(current)
+                    current = []
+                continue
+            current.append(token)
+        if current:
+            segments.append(current)
+        return segments
 
     # Credential-material detectors for the exfil rule. Basename globs catch
     # key/cert material; path substrings catch well-known secret stores.
@@ -1668,7 +1739,8 @@ class Warden:
                     if verdict.verdict == Verdict.SAFE:
                         self.log.debug(f"✅ {action.action_type.value}: {action.target[:60]}")
                     elif verdict.verdict == Verdict.FLAG:
-                        self.flag_timestamps.append(time.time())
+                        if self._flag_counts_toward_accumulation(verdict):
+                            self.flag_timestamps.append(time.time())
                         self.log.warning(
                             f"⚠️  FLAG [{len(self.flag_timestamps)}/"
                             f"{self.scope.flag_threshold}]: "

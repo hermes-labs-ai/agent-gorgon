@@ -238,6 +238,55 @@ def test_suspend_agent_fail_open_on_dead_pid():
     assert result["errors"]
 
 
+def test_suspend_agent_stops_parent_before_enumerating_and_drains_fork_race(
+    monkeypatch,
+):
+    """Children appearing during suspension are discovered before completion."""
+    events = []
+
+    class FakeChild:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def suspend(self):
+            events.append(("child_suspend", self.pid))
+
+    first = FakeChild(2001)
+    late = FakeChild(2002)
+
+    class FakeParent:
+        pid = 2000
+
+        def __init__(self):
+            self.stopped = False
+            self.enumerations = 0
+
+        def suspend(self):
+            self.stopped = True
+            events.append(("parent_suspend", self.pid))
+
+        def children(self, recursive=True):
+            assert recursive is True
+            assert self.stopped, "parent must be stopped before child enumeration"
+            self.enumerations += 1
+            if self.enumerations == 1:
+                return [first]
+            return [first, late]
+
+    parent = FakeParent()
+    monkeypatch.setattr(psutil, "Process", lambda pid: parent)
+
+    result = Killswitch(parent.pid).suspend_agent()
+
+    assert result["suspended"] is True
+    assert result["pids_suspended"] == [2000, 2001, 2002]
+    assert events == [
+        ("parent_suspend", 2000),
+        ("child_suspend", 2001),
+        ("child_suspend", 2002),
+    ]
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # PART B — deterministic credential-read-then-network-out KILL
 # ══════════════════════════════════════════════════════════════════════════

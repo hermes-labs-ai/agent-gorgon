@@ -9,6 +9,7 @@ from the path-set diff as useful but explicitly unattributed observations.
 import asyncio
 import os
 import tempfile
+import time
 from datetime import datetime, timezone
 
 from agent_warden.warden import (
@@ -254,6 +255,25 @@ def test_diff_delete_of_forbidden_path_is_flag_not_halt_or_kill():
     v = asyncio.run(w.evaluate_action(_diff_delete("/tmp/work/secrets/key.txt")))
     assert v.verdict == Verdict.FLAG
     assert "unattributed" in v.reason.lower()
+
+
+def test_unattributed_diff_flags_never_arm_flag_accumulation(monkeypatch):
+    """Evidence-only scope diffs cannot become indirect kill authority."""
+    monkeypatch.setenv("WARDEN_KILL_ON_FLAGS", "1")
+    w = _routing_warden()
+    w.judge.available = False
+    w.scope.flag_threshold = 3
+
+    for i in range(3):
+        verdict = asyncio.run(
+            w.evaluate_action(_diff_delete(f"/tmp/work/secrets/key-{i}.txt"))
+        )
+        assert verdict.verdict == Verdict.FLAG
+        if w._flag_counts_toward_accumulation(verdict):
+            w.flag_timestamps.append(time.time())
+
+    assert w.flag_timestamps == []
+    assert w._check_flag_accumulation() is None
 
 
 def test_attributed_forbidden_delete_still_kills_when_not_from_diff():
