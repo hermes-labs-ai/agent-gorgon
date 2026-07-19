@@ -203,6 +203,62 @@ def test_shell_compound_commands_cannot_hide_protected_root_delete():
         assert v.verdict == Verdict.KILL, cmd
 
 
+def test_shell_control_structures_with_protected_rm_halt_reversibly():
+    """Unreduced control syntax must HALT, never fall SAFE or speculate KILL."""
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["bash", "sh", "zsh"])
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'if true; then rm -rf /; fi'",
+        "bash -c 'while true; do rm -rf /; done'",
+        "zsh -c 'if true; then rm -rf ~/.ssh; fi'",
+    ):
+        assert w._rm_rf_protected_target(cmd) is None, cmd
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "uncertain compound shell recursive rm" in verdict.reason.lower(), cmd
+
+
+def test_shell_control_structures_with_benign_cleanup_do_not_halt():
+    """Matched compound cleanup of literal project paths stays confidently benign."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["bash", "sh", "zsh"])
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'if true; then rm -rf build; fi'",
+        "bash -c 'while false; do rm -rf .venv; done'",
+        "zsh -c 'if true; then rm -rf ~/project; fi'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.SAFE, cmd
+        assert "uncertain compound" not in verdict.reason.lower(), cmd
+
+
+def test_quoted_and_echoed_rm_text_is_not_enforcement_evidence():
+    """Rendered rm text is data, not a destructive command."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'echo rm -rf /'",
+        "sh -c 'echo \"rm -rf /\"'",
+        "sh -c 'printf \"%s\\n\" \"rm -rf /\"'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.SAFE, cmd
+        assert "uncertain compound" not in verdict.reason.lower(), cmd
+
+
+def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
+    """An unresolved target cannot silently acquire either SAFE or KILL."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+    verdict = asyncio.run(w.evaluate_action(_exec("sh -c 'rm -rf \"$TARGET\"'")))
+    assert verdict.verdict == Verdict.HALT
+    assert "unresolved shell expansion" in verdict.reason.lower()
+
+
 def test_quoted_shell_operator_byte_remains_part_of_path():
     """A quoted semicolon is data, not a command separator or filesystem root."""
     w = _warden()

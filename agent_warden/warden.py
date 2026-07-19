@@ -73,6 +73,13 @@ class ActionType(Enum):
     PROCESS_SPAWN = "process_spawn"
     UNKNOWN = "unknown"
 
+
+class RecursiveRmState(Enum):
+    NONE = "none"
+    BENIGN = "benign"
+    PROTECTED = "protected"
+    UNCERTAIN = "uncertain"
+
 @dataclass
 class AgentAction:
     """Represents a single observed agent action."""
@@ -100,6 +107,15 @@ class WardenVerdict:
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.now(timezone.utc).isoformat()
+
+
+@dataclass(frozen=True)
+class RecursiveRmDecision:
+    """Deterministic classification of one recursive-rm command surface."""
+
+    state: RecursiveRmState
+    target: str = ""
+    reason: str = ""
 
 
 # ════════════════════════════════════════════════════════════
@@ -1521,38 +1537,38 @@ class Warden:
         of project directories are intentionally allowed to fall through to a
         FLAG at most — they are not proof of harm. Unwrap a shell ``-c`` payload
         first so an allowed shell cannot bypass this deterministic protection."""
-        try:
-            tokens = shlex.split(command)
-        except ValueError:
-            tokens = command.split()
-        tokens = self._strip_shell_command_prefixes(tokens)
-        if not tokens:
-            return None
+        decision = self._recursive_rm_decision(command)
+        if decision.state == RecursiveRmState.PROTECTED:
+            return decision.target
+        return None
 
-        base_cmd = os.path.basename(tokens[0])
-        if base_cmd in {"bash", "dash", "ksh", "sh", "zsh"}:
-            for index, token in enumerate(tokens[1:], start=1):
-                if (token.startswith("-") and not token.startswith("--")
-                        and "c" in token[1:]):
-                    # POSIX shells consume exactly one argv item as the command
-                    # string after -c. Later argv items become $0, $1, ... and
-                    # must never be reinterpreted as rm operands.
-                    payload = tokens[index + 1] if index + 1 < len(tokens) else ""
-                    if not payload:
-                        return None
-                    for segment in self._shell_command_segments(payload):
-                        protected = self._rm_rf_protected_target(
-                            shlex.join(segment)
-                        )
-                        if protected is not None:
-                            return protected
-                    return None
-            return None
-        if base_cmd != "rm":
-            return None
+    @staticmethod
+    def _rm_target_has_unresolved_expansion(target: str) -> bool:
+        """Whether a target depends on shell state other than the known HOME."""
+        raw = target.strip()
+        if "`" in raw or "$(" in raw:
+            return True
+        if "$" not in raw:
+            return False
+        if raw.startswith("$HOME") and (
+            len(raw) == len("$HOME") or raw[len("$HOME")] in "/.*?["
+        ):
+            return False
+        if raw.startswith("${HOME}"):
+            return False
+        for prefix in ("${HOME:?", "${HOME?", "${HOME:-", "${HOME-", "${HOME:=", "${HOME="):
+            if raw.startswith(prefix) and "}" in raw[len(prefix):]:
+                return False
+        return True
+
+    def _classify_rm_tokens(self, tokens: list[str]) -> RecursiveRmDecision:
+        """Classify one argv-like simple command without executing it."""
+        tokens = self._strip_shell_command_prefixes(tokens)
+        if not tokens or os.path.basename(tokens[0]) != "rm":
+            return RecursiveRmDecision(RecursiveRmState.NONE)
 
         recursive = False
-        path_args = []
+        path_args: list[str] = []
         for tok in tokens[1:]:
             if tok == "--":
                 continue
@@ -1568,11 +1584,101 @@ class Warden:
             path_args.append(tok)
 
         if not recursive:
-            return None
+            return RecursiveRmDecision(RecursiveRmState.NONE)
         for p in path_args:
             if self._is_protected_root(p):
-                return p
-        return None
+                return RecursiveRmDecision(
+                    RecursiveRmState.PROTECTED,
+                    target=p,
+                    reason="recognized protected recursive-rm target",
+                )
+        for p in path_args:
+            if self._rm_target_has_unresolved_expansion(p):
+                return RecursiveRmDecision(
+                    RecursiveRmState.UNCERTAIN,
+                    target=p,
+                    reason="recursive-rm target contains unresolved shell expansion",
+                )
+        return RecursiveRmDecision(
+            RecursiveRmState.BENIGN,
+            target=" ".join(path_args),
+            reason="recursive-rm targets are confidently non-protected literals",
+        )
+
+    def _recursive_rm_decision(self, command: str) -> RecursiveRmDecision:
+        """Classify supported shell ``-c`` recursive-rm behavior tri-state.
+
+        Simple commands are reduced exactly. In compound segments, an embedded
+        protected or dynamic recursive rm cannot be assigned irreversible KILL
+        authority without a full shell parser, so it becomes a reversible HALT.
+        Embedded literal project cleanup remains benign. Quoted strings remain
+        one token, while the output-only echo/printf controls treat later tokens
+        as data rather than commands.
+        """
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return RecursiveRmDecision(RecursiveRmState.NONE)
+        tokens = self._strip_shell_command_prefixes(tokens)
+        if not tokens:
+            return RecursiveRmDecision(RecursiveRmState.NONE)
+
+        base_cmd = os.path.basename(tokens[0])
+        if base_cmd not in {"bash", "dash", "ksh", "sh", "zsh"}:
+            return self._classify_rm_tokens(tokens)
+
+        payload = ""
+        for index, token in enumerate(tokens[1:], start=1):
+            if token.startswith("-") and not token.startswith("--") and "c" in token[1:]:
+                # Exactly one argv item after -c is executable shell text. Later
+                # items are positional data and never enter this classifier.
+                payload = tokens[index + 1] if index + 1 < len(tokens) else ""
+                break
+        if not payload:
+            return RecursiveRmDecision(RecursiveRmState.NONE)
+
+        saw_benign = False
+        uncertain: RecursiveRmDecision | None = None
+        for segment in self._shell_command_segments(payload):
+            direct = self._classify_rm_tokens(segment)
+            if direct.state == RecursiveRmState.PROTECTED:
+                return direct
+            if direct.state == RecursiveRmState.UNCERTAIN:
+                uncertain = direct
+            elif direct.state == RecursiveRmState.BENIGN:
+                saw_benign = True
+
+            normalized = self._strip_shell_command_prefixes(segment)
+            if not normalized or direct.state != RecursiveRmState.NONE:
+                continue
+            # These commands render their remaining argv as text; an `rm` token
+            # there is evidence content, not an executable command.
+            if os.path.basename(normalized[0]) in {"echo", "printf"}:
+                continue
+            for rm_index in range(1, len(normalized)):
+                if os.path.basename(normalized[rm_index]) != "rm":
+                    continue
+                embedded = self._classify_rm_tokens(normalized[rm_index:])
+                if embedded.state in {
+                    RecursiveRmState.PROTECTED,
+                    RecursiveRmState.UNCERTAIN,
+                }:
+                    uncertain = RecursiveRmDecision(
+                        RecursiveRmState.UNCERTAIN,
+                        target=embedded.target,
+                        reason="compound shell syntax obscures recursive-rm command position",
+                    )
+                elif embedded.state == RecursiveRmState.BENIGN:
+                    saw_benign = True
+
+        if uncertain is not None:
+            return uncertain
+        if saw_benign:
+            return RecursiveRmDecision(
+                RecursiveRmState.BENIGN,
+                reason="compound shell recursive-rm targets are confidently benign",
+            )
+        return RecursiveRmDecision(RecursiveRmState.NONE)
 
     @staticmethod
     def _shell_command_segments(payload: str) -> list[list[str]]:
@@ -1721,7 +1827,7 @@ class Warden:
         return credential_reads + others
 
     def _check_hardcoded_kill(self, action: AgentAction) -> WardenVerdict | None:
-        """Hardcoded KILL rules for critical threats."""
+        """Hardcoded KILL and reversible uncertainty-HALT safety rules."""
         target = action.target
 
         # SSH key access
@@ -1757,12 +1863,22 @@ class Warden:
         # __pycache__) is routine developer cleanup — it falls through to at most
         # a FLAG, never an instant SIGKILL.
         if action.action_type in (ActionType.PROCESS_EXEC, ActionType.PROCESS_SPAWN):
-            protected = self._rm_rf_protected_target(action.target)
-            if protected is not None:
+            rm_decision = self._recursive_rm_decision(action.target)
+            if rm_decision.state == RecursiveRmState.PROTECTED:
                 return WardenVerdict(
                     verdict=Verdict.KILL,
-                    reason=f"rm -rf targeting protected root: {protected}",
+                    reason=f"rm -rf targeting protected root: {rm_decision.target}",
                     action=action, evaluator="rule_engine"
+                )
+            if rm_decision.state == RecursiveRmState.UNCERTAIN:
+                return WardenVerdict(
+                    verdict=Verdict.HALT,
+                    reason=(
+                        "Uncertain compound shell recursive rm: "
+                        f"{rm_decision.reason}; target={rm_decision.target or 'unknown'}"
+                    ),
+                    action=action,
+                    evaluator="rule_engine",
                 )
 
         return None
