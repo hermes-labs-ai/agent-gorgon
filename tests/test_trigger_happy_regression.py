@@ -329,3 +329,55 @@ def test_rm_rf_project_dirs_still_survive_under_credential_scope():
         assert w._rm_rf_protected_target(cmd) is None, cmd
         v = asyncio.run(w.evaluate_action(_exec(cmd)))
         assert v.verdict != Verdict.KILL, cmd
+
+
+def test_shell_home_prefix_glob_intersects_credential_root():
+    """A shell operand glob that includes ~/.ssh cannot evade protection."""
+    w = _cred_warden()
+    cmd = "sh -c 'rm -rf ~/.ssh*'"
+    assert w._rm_rf_protected_target(cmd) is not None
+    assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict == Verdict.KILL
+
+
+def test_internal_forbidden_glob_does_not_collapse_to_literal_prefix(tmp_path):
+    """An internal wildcard protects its matches, not every prefix sibling."""
+    w = _warden()
+    w.judge.available = False
+    w.scope.forbidden_paths = [str(tmp_path / "*" / "secret" / "**")]
+    unrelated = tmp_path / "build"
+    unrelated.mkdir()
+
+    cmd = f"rm -rf {unrelated}"
+    assert w._rm_rf_protected_target(cmd) is None
+    assert asyncio.run(w.evaluate_action(_exec(cmd))).verdict != Verdict.KILL
+
+
+def test_internal_forbidden_glob_intersection_table(tmp_path):
+    """Table-driven controls cover exact, descendant, ancestor, and siblings."""
+    w = _warden()
+    w.judge.available = False
+    w.scope.forbidden_paths = [str(tmp_path / "*" / "secret" / "**")]
+
+    protected = tmp_path / "job" / "secret"
+    protected.mkdir(parents=True)
+    (protected / "token").write_text("secret", encoding="utf-8")
+    unrelated = tmp_path / "build"
+    unrelated.mkdir()
+    nested_but_not_matched = tmp_path / "nested" / "job" / "secret"
+    nested_but_not_matched.mkdir(parents=True)
+
+    cases = (
+        (protected, True),
+        (protected / "token", True),
+        (protected.parent, True),
+        (tmp_path / "*" / "secret*", True),
+        (unrelated, False),
+        (tmp_path / "job" / "public", False),
+        (nested_but_not_matched, False),
+    )
+    for target, should_kill in cases:
+        cmd = f"rm -rf {target}"
+        matched = w._rm_rf_protected_target(cmd) is not None
+        assert matched is should_kill, cmd
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd))).verdict
+        assert (verdict == Verdict.KILL) is should_kill, cmd

@@ -1236,18 +1236,18 @@ class Warden:
 
     @staticmethod
     def _forbidden_path_root(pattern: str) -> str:
-        """The concrete directory root of a forbidden_path glob. A CONTENTS glob
-        like `~/.ssh/**` protects everything *inside* ~/.ssh but not the ~/.ssh
-        directory itself — deleting the whole directory is at least as dangerous.
-        Strip the trailing glob segments to recover the protected root
-        (`~/.ssh/**` -> `~/.ssh`, `/data/*/secret` -> `/data`)."""
+        """Return the protected root *pattern* for a forbidden path.
+
+        A trailing contents glob does not make deleting its container safe, so
+        ``~/.ssh/**`` protects ``~/.ssh`` itself.  Internal wildcard segments
+        remain significant: ``/tmp/*/secret/**`` protects the matched ``secret``
+        directories, not the unrelated literal prefix ``/tmp``.
+        """
         expanded = os.path.expandvars(os.path.expanduser(pattern.strip()))
-        kept: list[str] = []
-        for seg in expanded.split(os.sep):
-            if any(ch in seg for ch in "*?["):
-                break
-            kept.append(seg)
-        root = os.sep.join(kept)
+        segments = expanded.split(os.sep)
+        while segments and segments[-1] in {"*", "**"}:
+            segments.pop()
+        root = os.sep.join(segments)
         return os.path.normpath(root) if root else ""
 
     @staticmethod
@@ -1256,6 +1256,125 @@ class Warden:
         if a == b:
             return True
         return b.startswith(a.rstrip(os.sep) + os.sep)
+
+    @staticmethod
+    def _path_ancestors(path: str) -> list[str]:
+        """Return ``path`` followed by each of its filesystem ancestors."""
+        current = os.path.normpath(path)
+        ancestors = [current]
+        while True:
+            parent = os.path.dirname(current)
+            if parent == current or not parent:
+                break
+            ancestors.append(parent)
+            current = parent
+        return ancestors
+
+    @staticmethod
+    def _glob_path_matches(pattern: str, path: str) -> bool:
+        """Match a filesystem path with segment-aware ``**`` glob semantics."""
+        pattern = os.path.normpath(pattern)
+        path = os.path.normpath(path)
+        if os.path.isabs(pattern) != os.path.isabs(path):
+            return False
+        pattern_parts = tuple(part for part in pattern.split(os.sep) if part)
+        path_parts = tuple(part for part in path.split(os.sep) if part)
+        memo: dict[tuple[int, int], bool] = {}
+
+        def matches(pattern_index: int, path_index: int) -> bool:
+            key = (pattern_index, path_index)
+            if key in memo:
+                return memo[key]
+            if pattern_index == len(pattern_parts):
+                result = path_index == len(path_parts)
+            elif pattern_parts[pattern_index] == "**":
+                result = matches(pattern_index + 1, path_index) or (
+                    path_index < len(path_parts)
+                    and matches(pattern_index, path_index + 1)
+                )
+            else:
+                result = (
+                    path_index < len(path_parts)
+                    and fnmatch.fnmatchcase(
+                        path_parts[path_index], pattern_parts[pattern_index]
+                    )
+                    and matches(pattern_index + 1, path_index + 1)
+                )
+            memo[key] = result
+            return result
+
+        return matches(0, 0)
+
+    @classmethod
+    def _delete_target_intersects_forbidden(
+        cls, target: str, protected_pattern: str
+    ) -> bool:
+        """Whether recursive deletion of ``target`` intersects a forbidden root.
+
+        Shell operand globs and scope globs describe path sets, not literal
+        prefixes.  A protected literal matched by an operand glob is always an
+        intersection (``~/.ssh*`` vs ``~/.ssh``).  For an internal wildcard in
+        the protected root, an ancestor delete is fatal only when the wildcard
+        currently materializes beneath that ancestor; this avoids treating
+        ``/tmp/*/secret`` as if all of ``/tmp`` were protected.
+        """
+        target = os.path.normpath(target)
+        protected_pattern = os.path.normpath(protected_pattern)
+        target_has_magic = glob.has_magic(target)
+        protected_has_magic = glob.has_magic(protected_pattern)
+
+        # A literal target at or below a protected root pattern is destructive.
+        # Checking every ancestor also recognizes descendants of an internal
+        # wildcard root, e.g. /tmp/job/secret/token below /tmp/*/secret.
+        if not target_has_magic and any(
+            cls._glob_path_matches(protected_pattern, ancestor)
+            for ancestor in cls._path_ancestors(target)
+        ):
+            return True
+
+        # A shell operand glob that includes a concrete protected root is
+        # destructive even if that root does not currently exist.  The shell
+        # spelling is irrelevant; the two path sets intersect.
+        if target_has_magic and not protected_has_magic:
+            if cls._glob_path_matches(target, protected_pattern):
+                return True
+
+        target_matches = (
+            [target]
+            if not target_has_magic
+            else [os.path.normpath(match) for match in glob.iglob(target, recursive=True)]
+        )
+        protected_matches = (
+            [protected_pattern]
+            if not protected_has_magic
+            else [
+                os.path.normpath(match)
+                for match in glob.iglob(protected_pattern, recursive=True)
+            ]
+        )
+
+        # Compare the concrete sets that the shell and the forbidden pattern
+        # resolve to.  Covering either a protected path or one of its ancestors
+        # deletes protected material.
+        for concrete_target in target_matches:
+            for concrete_protected in protected_matches:
+                if cls._path_covers(concrete_target, concrete_protected):
+                    return True
+                if cls._path_covers(concrete_protected, concrete_target):
+                    return True
+
+        # A target glob can match an ancestor of a protected materialization
+        # without matching the protected leaf text itself (e.g. /tmp/* deleting
+        # /tmp/job, which contains /tmp/job/secret).
+        if target_has_magic:
+            for concrete_protected in protected_matches:
+                if any(
+                    cls._glob_path_matches(target, ancestor)
+                    for ancestor in cls._path_ancestors(concrete_protected)
+                ):
+                    return True
+
+        return False
 
     def _is_protected_root(self, path: str) -> bool:
         """A recursive delete of this path is catastrophic and non-recoverable:
@@ -1327,9 +1446,9 @@ class Warden:
         if normed == home:
             return True
 
-        # Scope-declared forbidden paths. Kill if the target equals, is UNDER, or
-        # is an ANCESTOR of any forbidden root. Match both the given (possibly
-        # relative) form and its absolute form.
+        # Scope-declared forbidden paths. Compare delete and protected path sets
+        # without collapsing internal wildcard segments to their literal prefix.
+        # Match both the given (possibly relative) form and its absolute form.
         targets = {normed}
         if not os.path.isabs(normed):
             targets.add(os.path.normpath(os.path.abspath(normed)))
@@ -1337,11 +1456,15 @@ class Warden:
             root = self._forbidden_path_root(pat)
             if not root or root == os.sep:
                 continue
+            protected_patterns = {root}
+            if not os.path.isabs(root):
+                protected_patterns.add(os.path.normpath(os.path.abspath(root)))
             for tgt in targets:
-                # target is under/equal-to the forbidden root (deleting content),
-                # or target is an ancestor of it (deleting the container).
-                if self._path_covers(root, tgt) or self._path_covers(tgt, root):
-                    return True
+                for protected_pattern in protected_patterns:
+                    if self._delete_target_intersects_forbidden(
+                        tgt, protected_pattern
+                    ):
+                        return True
         return False
 
     @staticmethod
