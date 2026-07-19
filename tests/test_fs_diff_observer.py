@@ -46,6 +46,72 @@ def test_scope_roots_are_literal_prefixes_of_allowed_globs():
     assert obs._scope_roots == ["/tmp/foo", "/tmp/bar"]
 
 
+def test_wildcard_directory_segment_expands_only_matching_roots(tmp_path):
+    matching_a = tmp_path / "my-agent_a"
+    matching_b = tmp_path / "my-agent_b"
+    unrelated = tmp_path / "unrelated"
+    for directory in (matching_a, matching_b, unrelated):
+        directory.mkdir()
+
+    obs = _observer([f"{tmp_path}/my-agent_*/**"])
+
+    assert obs._scope_roots == [str(matching_a), str(matching_b)]
+    assert str(tmp_path) not in obs._scope_roots
+    assert str(unrelated) not in obs._scope_roots
+
+
+def test_wildcard_scope_avoids_unrelated_parent_cap_blindness(tmp_path):
+    matching = tmp_path / "my-agent_live"
+    matching.mkdir()
+    relevant = matching / "result.json"
+    relevant.write_text("{}")
+    for i in range(6):
+        (tmp_path / f"unrelated-{i}.txt").write_text("noise")
+
+    obs = _observer([f"{tmp_path}/my-agent_*/**"])
+    obs._snapshot_file_cap = 2
+
+    files, capped = obs._snapshot_scope_files()
+
+    assert capped is False
+    assert files == {str(relevant)}
+
+
+def test_wildcard_scope_discovers_new_matching_root_after_baseline(tmp_path):
+    existing = tmp_path / "my-agent_existing"
+    existing.mkdir()
+    (existing / "old.txt").write_text("old")
+    obs = _observer([f"{tmp_path}/my-agent_*/**"])
+    obs._diff_scope_filesystem(_now_iso(), [])
+
+    added = tmp_path / "my-agent_added"
+    added.mkdir()
+    new_file = added / "new.txt"
+    new_file.write_text("new")
+    actions: list = []
+    obs._diff_scope_filesystem(_now_iso(), actions)
+
+    writes = [a.target for a in actions if a.action_type == ActionType.FILE_WRITE]
+    assert writes == [str(new_file)]
+
+
+def test_wildcard_root_expansion_cap_flags_without_partial_baseline(tmp_path):
+    for name in ("my-agent_a", "my-agent_b", "my-agent_c"):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "state.json").write_text("{}")
+    obs = _observer([f"{tmp_path}/my-agent_*/**"])
+    obs._scope_root_cap = 2
+
+    actions: list = []
+    obs._diff_scope_filesystem(_now_iso(), actions)
+
+    assert len(actions) == 1
+    assert actions[0].action_type == ActionType.UNKNOWN
+    assert actions[0].details["root_cap"] == 2
+    assert obs._scope_snapshot is None
+
+
 def test_filesystem_root_glob_is_excluded():
     # '/**' -> '/' must be skipped: snapshotting the whole filesystem would melt.
     obs = _observer(["/**", "/tmp/keep/**"])

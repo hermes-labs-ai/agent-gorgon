@@ -23,6 +23,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import glob
+import heapq
 import json
 import os
 import sys
@@ -31,6 +33,7 @@ import shlex
 import fnmatch
 import logging
 import argparse
+from collections.abc import Iterable
 from pathlib import Path
 from datetime import datetime, timezone
 from dataclasses import dataclass, field, asdict
@@ -752,6 +755,11 @@ class ProcessObserver:
         # (path-set only — NO mtime/modify detection, which is spoofable/noisy).
         self.scope = scope
         self._scope_snapshot: set[str] | None = None  # None = not yet baselined
+        # A wildcard directory component is expanded to concrete matching roots
+        # instead of walking its broad literal parent. Bound that expansion so a
+        # hostile or accidental pattern cannot create a different unbounded walk.
+        self._scope_root_cap: int = 1_024
+        self._scope_root_expansion_capped: bool = False
         self._scope_roots: list[str] = self._compute_scope_roots(scope)
         # Decouple the walk from the (0.5s) process poll so a large tree doesn't
         # get re-walked every poll. Snapshot at most every ~1s (monotonic gate).
@@ -774,9 +782,16 @@ class ProcessObserver:
         return os.path.normpath(root) if root else ""
 
     def _compute_scope_roots(self, scope: Scope | None) -> list[str]:
-        """Concrete directory roots to snapshot: the literal prefix of each
-        allowed_paths glob. Skip the filesystem root ('/**' -> '/') — snapshotting
-        the whole filesystem every poll is never the intent and would melt.
+        """Concrete directory roots to snapshot for each allowed-path glob.
+
+        A wildcard in a directory component is expanded only through that first
+        component. For example, ``/tmp/my-agent_*/**`` becomes the concrete
+        matching ``/tmp/my-agent_X`` directories, never the broad ``/tmp``
+        parent. A terminal file glob (``/work/*.txt``) and recursive suffix
+        (``/work/**``) retain their literal directory prefix.
+
+        Skip the filesystem root ('/**' -> '/') — snapshotting the whole
+        filesystem every poll is never the intent and would melt.
 
         De-dup by realpath so a symlink alias (e.g. macOS '/tmp' -> '/private/tmp'
         listed as two allowed_paths) doesn't get walked twice, which would
@@ -785,20 +800,58 @@ class ProcessObserver:
         still match the un-resolved allowed_paths patterns in check_filesystem."""
         if scope is None:
             return []
+        self._scope_root_expansion_capped = False
         roots: list[str] = []
         seen_real: set[str] = set()
         for pat in getattr(scope, "allowed_paths", []) or []:
-            root = self._literal_dir_prefix(pat)
-            if not root or root == os.sep:
-                continue
-            try:
-                real = os.path.realpath(root)
-            except OSError:
-                real = root
-            if real in seen_real or root in roots:
-                continue
-            seen_real.add(real)
-            roots.append(root)
+            expanded = os.path.expandvars(os.path.expanduser(pat.strip()))
+            parts = expanded.split(os.sep)
+            wildcard_index = next(
+                (i for i, part in enumerate(parts)
+                 if any(ch in part for ch in "*?[")),
+                None,
+            )
+            literal_root = self._literal_dir_prefix(pat)
+            candidates: Iterable[str]
+            if (wildcard_index is not None
+                    and wildcard_index < len(parts) - 1
+                    and parts[wildcard_index] != "**"):
+                # Expand one wildcard directory level. iglob is intentionally
+                # non-recursive and consumed under _scope_root_cap.
+                component_glob = os.sep.join(parts[:wildcard_index + 1])
+                candidates = heapq.nsmallest(
+                    self._scope_root_cap + 1,
+                    glob.iglob(component_glob, recursive=False),
+                )
+            else:
+                candidates = (literal_root,)
+
+            for root in candidates:
+                if not root or root == os.sep:
+                    continue
+                if not os.path.isdir(root):
+                    # Preserve literal missing roots so their later creation is
+                    # visible; wildcard roots are rediscovered on each snapshot.
+                    if root == literal_root and wildcard_index is None:
+                        pass
+                    elif (root == literal_root
+                          and (wildcard_index == len(parts) - 1
+                               or parts[wildcard_index] == "**")):
+                        pass
+                    else:
+                        continue
+                root = os.path.normpath(root)
+                try:
+                    real = os.path.realpath(root)
+                except OSError:
+                    real = root
+                if real in seen_real or root in roots:
+                    continue
+                if len(roots) >= self._scope_root_cap:
+                    self._scope_root_expansion_capped = True
+                    return roots
+                seen_real.add(real)
+                roots.append(root)
         return roots
 
     def _snapshot_scope_files(self) -> tuple[set[str], bool]:
@@ -807,6 +860,12 @@ class ProcessObserver:
         warden (fail-open — the 'don't crash the warden' constraint). Bails with
         capped=True once past the file cap instead of exhausting memory."""
         found: set[str] = set()
+        # Re-expand wildcard directory components every snapshot so a newly
+        # created matching workspace is observed without ever walking its broad
+        # parent. An over-cap expansion fails closed as an incomplete snapshot.
+        self._scope_roots = self._compute_scope_roots(self.scope)
+        if self._scope_root_expansion_capped:
+            return found, True
         stack: list[str] = list(self._scope_roots)
         seen_dirs: set[str] = set()
         while stack:
@@ -837,7 +896,7 @@ class ProcessObserver:
         the set-diff vs the previous snapshot. These observations are deliberately
         unattributed: a directory snapshot cannot identify the process that made
         a change. The first (baseline) poll emits nothing. Fully fail-open."""
-        if not self._scope_roots:
+        if self.scope is None or not getattr(self.scope, "allowed_paths", None):
             return
         # Cadence gate: bound walk cost independently of the process poll rate.
         mono = time.time()
@@ -854,7 +913,8 @@ class ProcessObserver:
                 target="scope too large to snapshot",
                 details={"detected_by": "scope_diff",
                          "attribution": "unattributed",
-                         "file_cap": self._snapshot_file_cap},
+                         "file_cap": self._snapshot_file_cap,
+                         "root_cap": self._scope_root_cap},
             ))
             return
 
@@ -1372,6 +1432,27 @@ class Warden:
             )
         return None
 
+    def _order_actions_for_enforcement(
+        self, actions: list[AgentAction]
+    ) -> list[AgentAction]:
+        """Return a stable safety order for one observer poll.
+
+        psutil file and connection collectors are grouped independently, so
+        their list order is not an event chronology. Treat credential reads and
+        network egress reported in the same poll as a read-then-egress pair by
+        moving only credential reads to the front. Ordinary actions retain their
+        relative order and cannot arm the exfil rule.
+        """
+        credential_reads: list[AgentAction] = []
+        others: list[AgentAction] = []
+        for action in actions:
+            if (action.action_type == ActionType.FILE_READ
+                    and self._is_credential_target(action.target)):
+                credential_reads.append(action)
+            else:
+                others.append(action)
+        return credential_reads + others
+
     def _check_hardcoded_kill(self, action: AgentAction) -> WardenVerdict | None:
         """Hardcoded KILL rules for critical threats."""
         target = action.target
@@ -1748,7 +1829,10 @@ class Warden:
                     break
                 
                 # Observe and evaluate
-                for action in self.observer.observe():
+                actions = self._order_actions_for_enforcement(
+                    self.observer.observe()
+                )
+                for action in actions:
                     if self._action_counts_toward_rate_limit(action):
                         self.action_timestamps.append(time.time())
                     verdict = await self.evaluate_action(action)

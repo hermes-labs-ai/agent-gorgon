@@ -419,6 +419,41 @@ def test_cred_read_then_netout_kills_across_pids_in_tree():
     assert v.verdict == Verdict.KILL
 
 
+def test_same_poll_reversed_observer_order_still_kills_credential_exfil():
+    """Observer collection order is not causal: a connection may be reported
+    before the file read that armed it in the same poll. Enforcement must treat
+    same-poll credential reads as preceding egress regardless of list order."""
+    w = _warden()
+    w.judge.available = False
+    actions = [
+        _netout("8.8.8.8:443", pid=2000),
+        _read("/tmp/safe/app.credentials", pid=1000),
+    ]
+
+    ordered = w._order_actions_for_enforcement(actions)
+    verdicts = [asyncio.run(w.evaluate_action(action)) for action in ordered]
+
+    assert ordered[0].action_type == ActionType.FILE_READ
+    assert ordered[1].action_type == ActionType.NETWORK_OUT
+    assert verdicts[-1].verdict == Verdict.KILL
+    assert "exfil" in verdicts[-1].reason.lower()
+
+
+def test_same_poll_ordinary_read_does_not_reorder_or_arm_exfil():
+    w = _warden()
+    w.judge.available = False
+    actions = [
+        _netout("8.8.8.8:443", pid=2000),
+        _read("/tmp/safe/notes.txt", pid=1000),
+    ]
+
+    ordered = w._order_actions_for_enforcement(actions)
+    verdicts = [asyncio.run(w.evaluate_action(action)) for action in ordered]
+
+    assert ordered == actions
+    assert all(verdict.verdict != Verdict.KILL for verdict in verdicts)
+
+
 def test_forbidden_credential_read_still_kills_on_read():
     """Regression: exfil tracking must not weaken the read-time hard-kill for a
     forbidden-path credential read."""
