@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -61,7 +62,8 @@ def check(value: object) -> int:
 
     old_contract = _run_mypy(valid_project, tmp_path, "--follow-imports=normal")
     assert old_contract.returncode != 0
-    assert "Pattern matching is only supported in Python 3.10 and greater" in old_contract.stdout
+    assert re.search(rf"{re.escape(dependency.name)}:\d+(?::\d+)?: error:", old_contract.stdout)
+    assert "[syntax]" in old_contract.stdout
 
     corrected_contract = _run_mypy(valid_project, tmp_path)
     assert corrected_contract.returncode == 0, corrected_contract.stdout + corrected_contract.stderr
