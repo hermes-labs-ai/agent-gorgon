@@ -1193,15 +1193,17 @@ class Warden:
         )
         runtime_log_dir.mkdir(parents=True, exist_ok=True)
         self.runtime_log_path = runtime_log_dir / "warden.log"
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s [%(levelname)s] %(message)s',
-            handlers=[
-                logging.StreamHandler(),
-                logging.FileHandler(self.runtime_log_path)
-            ]
+        self.log = logging.Logger("sysmond", level=logging.INFO)
+        self.log.propagate = False
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(message)s"
         )
-        self.log = logging.getLogger("sysmond")
+        for handler in (
+            logging.StreamHandler(),
+            logging.FileHandler(self.runtime_log_path),
+        ):
+            handler.setFormatter(formatter)
+            self.log.addHandler(handler)
     
     def _build_scope_summary(self) -> str:
         return "\n".join([
@@ -2936,9 +2938,6 @@ async def main():
     
     args = parser.parse_args()
     
-    if args.verbose:
-        logging.getLogger("sysmond").setLevel(logging.DEBUG)
-    
     agent_pid = args.agent_pid
     if not agent_pid and args.agent_name:
         agent_pid = find_process_by_name(args.agent_name)
@@ -2966,6 +2965,8 @@ async def main():
         log_dir=args.log_dir,
         enable_llm=not args.no_llm,
     )
+    if args.verbose:
+        warden.log.setLevel(logging.DEBUG)
     
     await warden.run()
 

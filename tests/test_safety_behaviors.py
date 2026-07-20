@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -109,6 +110,42 @@ def test_custom_log_dir_contains_runtime_and_evidence_logs(tmp_path):
     assert w.runtime_log_path == custom / "warden.log"
     assert w.logger.action_log_path.parent == custom
     assert w.logger.incident_dir == custom / "incidents"
+
+
+def test_runtime_log_routing_ignores_root_handlers_and_isolates_wardens(tmp_path):
+    """Each Warden owns the requested runtime log even in an embedding process."""
+    root_logger = logging.getLogger()
+    embedding_handler = logging.NullHandler()
+    root_logger.addHandler(embedding_handler)
+    wardens = []
+    try:
+        for name in ("first", "second"):
+            wardens.append(
+                Warden(
+                    scope_path=_scope_file(),
+                    agent_pid=os.getpid(),
+                    log_dir=str(tmp_path / name),
+                )
+            )
+
+        wardens[0].log.info("first-runtime-marker")
+        wardens[1].log.info("second-runtime-marker")
+        for warden in wardens:
+            for handler in warden.log.handlers:
+                handler.flush()
+
+        first_log = wardens[0].runtime_log_path.read_text(encoding="utf-8")
+        second_log = wardens[1].runtime_log_path.read_text(encoding="utf-8")
+        assert "first-runtime-marker" in first_log
+        assert "second-runtime-marker" not in first_log
+        assert "second-runtime-marker" in second_log
+        assert "first-runtime-marker" not in second_log
+    finally:
+        root_logger.removeHandler(embedding_handler)
+        for warden in wardens:
+            for handler in list(warden.log.handlers):
+                handler.close()
+                warden.log.removeHandler(handler)
 
 
 def test_failed_kill_attempt_remains_retryable_and_report_is_truthful(monkeypatch, tmp_path):
