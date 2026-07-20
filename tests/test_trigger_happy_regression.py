@@ -575,6 +575,56 @@ def test_nested_shell_and_eval_payloads_preserve_recursive_delete_enforcement():
         assert verdict.verdict == Verdict.SAFE, cmd
 
 
+def test_assignment_prefixed_eval_cannot_hide_recursive_delete():
+    """An eval-local assignment must be visible when eval parses its text."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c payload",
+        details={
+            "cwd": os.getcwd(),
+            "argv": ["sh", "-c", 'CMD="rm -rf /" eval \'$CMD\''],
+        },
+    )
+
+    decision = w._recursive_rm_decision(
+        action.target,
+        action.details["cwd"],
+        observed_argv=action.details["argv"],
+    )
+    verdict = asyncio.run(w.evaluate_action(action))
+
+    assert decision.state.value == "uncertain"
+    assert verdict.verdict == Verdict.HALT
+    assert "assigned recursive-rm" in verdict.reason.lower()
+
+    benign = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c payload",
+        details={
+            "cwd": os.getcwd(),
+            "argv": ["sh", "-c", 'CMD="rm -rf build" eval \'$CMD\''],
+        },
+    )
+    assert asyncio.run(w.evaluate_action(benign)).verdict == Verdict.SAFE
+
+    inert = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c payload",
+        details={
+            "cwd": os.getcwd(),
+            "argv": ["sh", "-c", 'CMD="rm -rf /" printf "%s\\n" \'$CMD\''],
+        },
+    )
+    assert asyncio.run(w.evaluate_action(inert)).verdict == Verdict.SAFE
+
+
 def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
     """An unresolved target cannot silently acquire either SAFE or KILL."""
     w = _warden()

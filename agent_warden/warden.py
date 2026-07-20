@@ -2433,12 +2433,17 @@ class Warden:
         shell_assignments: dict[str, str] = {}
         uncertain: RecursiveRmDecision | None = None
         for segment in self._shell_command_segments(payload):
+            leading_assignments: dict[str, str] = {}
+            for token in segment:
+                if not self._is_shell_assignment_word(token):
+                    break
+                name, _separator, value = token.partition("=")
+                leading_assignments[name] = value
+
             if segment and all(
                 self._is_shell_assignment_word(token) for token in segment
             ):
-                for token in segment:
-                    name, _separator, value = token.partition("=")
-                    shell_assignments[name] = value
+                shell_assignments.update(leading_assignments)
 
             direct = self._classify_rm_tokens(segment, working_directory)
             if direct.state == RecursiveRmState.PROTECTED:
@@ -2466,7 +2471,10 @@ class Warden:
             eval_uses_known_assignment = False
             if normalized_base == "eval" and len(normalized) > 1:
                 # POSIX eval joins its argv with spaces, then parses that result
-                # as shell input. Preserve that execution boundary explicitly.
+                # as shell input. Assignment words immediately before this
+                # special builtin are visible while eval parses its text and
+                # persist afterward, just like standalone shell assignments.
+                shell_assignments.update(leading_assignments)
                 eval_text = " ".join(normalized[1:])
 
                 def expand_known_assignment(match: re.Match[str]) -> str:
