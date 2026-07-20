@@ -390,6 +390,43 @@ def test_shell_comments_do_not_become_recursive_delete_evidence():
         assert verdict.verdict == Verdict.KILL, cmd
 
 
+def test_nested_shell_and_eval_payloads_preserve_recursive_delete_enforcement():
+    """Literal execution wrappers cannot hide rm, while data and cleanup stay benign."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+
+    for cmd in (
+        "sh -c 'eval \"rm -rf /\"'",
+        "sh -c 'sh -c \"rm -rf /\"'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.KILL, cmd
+
+    cred_warden = _cred_warden()
+    cred_warden.scope.allowed_commands.extend(["sh"])
+    for cmd in (
+        "sh -c 'eval \"rm -rf $HOME/.ssh\"'",
+        "sh -c 'sh -c \"rm -rf $HOME/.ssh\"'",
+    ):
+        verdict = asyncio.run(cred_warden.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.KILL, cmd
+
+    dynamic = asyncio.run(
+        w.evaluate_action(_exec("sh -c 'eval \"rm -rf \\\"$TARGET\\\"\"'"))
+    )
+    assert dynamic.verdict == Verdict.HALT
+
+    for cmd in (
+        "sh -c 'eval \"rm -rf build\"'",
+        "sh -c 'sh -c \"rm -rf build\"'",
+        "sh -c 'eval \"echo rm -rf /\"'",
+        "sh -c 'sh -c \"echo rm -rf /\"'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.SAFE, cmd
+
+
 def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
     """An unresolved target cannot silently acquire either SAFE or KILL."""
     w = _warden()

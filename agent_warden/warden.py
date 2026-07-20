@@ -1994,7 +1994,11 @@ class Warden:
         )
 
     def _recursive_rm_decision(
-        self, command: str, working_directory: str | None = None
+        self,
+        command: str,
+        working_directory: str | None = None,
+        *,
+        _shell_depth: int = 0,
     ) -> RecursiveRmDecision:
         """Classify supported shell ``-c`` recursive-rm behavior tri-state.
 
@@ -2069,8 +2073,49 @@ class Warden:
                 continue
             # These commands render their remaining argv as text; an `rm` token
             # there is evidence content, not an executable command.
-            if os.path.basename(normalized[0]) in {"echo", "printf"}:
+            normalized_base = os.path.basename(normalized[0])
+            if normalized_base in {"echo", "printf"}:
                 continue
+
+            nested_command: str | None = None
+            if normalized_base == "eval" and len(normalized) > 1:
+                # POSIX eval joins its argv with spaces, then parses that result
+                # as shell input. Preserve that execution boundary explicitly.
+                nested_command = shlex.join(
+                    ["sh", "-c", " ".join(normalized[1:])]
+                )
+            elif normalized_base in {"bash", "dash", "ksh", "sh", "zsh"}:
+                nested_command = shlex.join(normalized)
+
+            if nested_command is not None:
+                if _shell_depth >= 8:
+                    nested_text = " ".join(normalized[1:])
+                    if "rm" in nested_text and any(
+                        marker in nested_text
+                        for marker in (" -r", " -R", " --recursive")
+                    ):
+                        uncertain = RecursiveRmDecision(
+                            RecursiveRmState.UNCERTAIN,
+                            target=nested_text,
+                            reason="nested shell execution exceeds classifier depth",
+                        )
+                    continue
+
+                nested = self._recursive_rm_decision(
+                    nested_command,
+                    working_directory,
+                    _shell_depth=_shell_depth + 1,
+                )
+                if nested.state == RecursiveRmState.PROTECTED:
+                    return self._apply_wrapper_uncertainty(
+                        nested, wrapper_uncertainty
+                    )
+                if nested.state == RecursiveRmState.UNCERTAIN:
+                    uncertain = nested
+                elif nested.state == RecursiveRmState.BENIGN:
+                    saw_benign = True
+                continue
+
             for rm_index in range(1, len(normalized)):
                 if os.path.basename(normalized[rm_index]) != "rm":
                     continue
