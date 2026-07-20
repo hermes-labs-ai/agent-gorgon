@@ -16,9 +16,11 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
+import agent_warden.warden as warden_module
 from agent_warden.warden import (
     ActionType,
     AgentAction,
+    ProcessObserver,
     Verdict,
     Warden,
 )
@@ -91,6 +93,7 @@ def _exec(cmd: str) -> AgentAction:
         timestamp=_now_iso(),
         action_type=ActionType.PROCESS_EXEC,
         target=cmd,
+        details={"cwd": os.getcwd()},
     )
 
 
@@ -385,6 +388,140 @@ def test_rm_rf_project_dirs_still_survive_under_credential_scope():
         assert w._rm_rf_protected_target(cmd) is None, cmd
         v = asyncio.run(w.evaluate_action(_exec(cmd)))
         assert v.verdict != Verdict.KILL, cmd
+
+
+def test_observer_records_child_cwd_for_process_exec(monkeypatch, tmp_path):
+    """The destructive-command evaluator must receive the observed child cwd."""
+
+    class FakeChild:
+        pid = 2468
+
+        @staticmethod
+        def cmdline():
+            return ["sh", "-c", "rm -rf .ssh"]
+
+        @staticmethod
+        def cwd():
+            return str(tmp_path)
+
+    child = FakeChild()
+
+    class FakeParent:
+        @staticmethod
+        def open_files():
+            return []
+
+        @staticmethod
+        def net_connections():
+            return []
+
+        @staticmethod
+        def children():
+            return [child]
+
+    observer = ProcessObserver(agent_pid=1357)
+    monkeypatch.setattr(observer, "get_agent_pids", lambda: [1357])
+    monkeypatch.setattr(warden_module.psutil, "Process", lambda _pid: FakeParent())
+
+    actions = observer.observe()
+
+    assert len(actions) == 1
+    assert actions[0].target == "sh -c 'rm -rf .ssh'"
+    assert actions[0].details == {"child_pid": 2468, "cwd": str(tmp_path)}
+
+
+def test_observer_marks_child_cwd_unavailable(monkeypatch):
+    """Access-denied cwd capture is explicit evidence, not a Warden-cwd guess."""
+
+    class FakeChild:
+        pid = 2468
+
+        @staticmethod
+        def cmdline():
+            return ["sh", "-c", "rm -rf .ssh"]
+
+        @staticmethod
+        def cwd():
+            raise warden_module.psutil.AccessDenied(pid=2468)
+
+    child = FakeChild()
+
+    class FakeParent:
+        @staticmethod
+        def open_files():
+            return []
+
+        @staticmethod
+        def net_connections():
+            return []
+
+        @staticmethod
+        def children():
+            return [child]
+
+    observer = ProcessObserver(agent_pid=1357)
+    monkeypatch.setattr(observer, "get_agent_pids", lambda: [1357])
+    monkeypatch.setattr(warden_module.psutil, "Process", lambda _pid: FakeParent())
+
+    actions = observer.observe()
+
+    assert len(actions) == 1
+    assert actions[0].details == {"child_pid": 2468, "cwd_unavailable": True}
+
+
+def test_relative_credential_delete_resolves_against_child_cwd(monkeypatch, tmp_path):
+    """Exact blocker: HOME child + `rm -rf .ssh` must never classify SAFE."""
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["sh"])
+
+    protected = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c 'rm -rf .ssh'",
+        details={"child_pid": 2468, "cwd": str(home)},
+    )
+    verdict = asyncio.run(w.evaluate_action(protected))
+
+    assert verdict.verdict == Verdict.KILL
+    assert "protected root" in verdict.reason.lower()
+
+
+def test_relative_project_cleanup_with_known_child_cwd_stays_safe(tmp_path):
+    """Known project cwd preserves confidently benign cleanup behavior."""
+    project = tmp_path / "project"
+    project.mkdir()
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["sh"])
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c 'rm -rf build .venv'",
+        details={"child_pid": 2468, "cwd": str(project)},
+    )
+
+    verdict = asyncio.run(w.evaluate_action(action))
+
+    assert verdict.verdict == Verdict.SAFE
+
+
+def test_relative_recursive_delete_without_child_cwd_halts():
+    """A denied/vanished cwd is reversible uncertainty, never a SAFE guess."""
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["sh"])
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c 'rm -rf .ssh'",
+        details={"child_pid": 2468, "cwd_unavailable": True},
+    )
+
+    verdict = asyncio.run(w.evaluate_action(action))
+
+    assert verdict.verdict == Verdict.HALT
+    assert "no observed child cwd" in verdict.reason.lower()
 
 
 def test_shell_home_prefix_glob_intersects_credential_root():

@@ -9,7 +9,8 @@ filesystem:
     - "/tmp/my-agent/**"
     - "/tmp/my-agent_*/**"
 
-  # Hard-kill invariants (near-zero FP)
+  # High-impact deterministic rules. Validate them against a disposable target;
+  # the project does not claim a universal false-positive rate.
   forbidden_paths:
     - "~/.ssh/**"
     - "~/.gnupg/**"
@@ -51,6 +52,8 @@ network:
     - 18789
 
 process:
+  # Built-in child observation applies the curl/wget uncertainty HALT before
+  # ordinary command-scope evaluation. Other exact forbidden commands KILL.
   allowed_commands:
     - "my-agent"
     - "bash"
@@ -71,7 +74,7 @@ process:
     - "jq"
     - "find"
 
-  # Hard-kill invariants requested
+  # High-impact deterministic command rules
   forbidden_commands:
     - "curl"
     - "wget"

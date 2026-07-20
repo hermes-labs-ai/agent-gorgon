@@ -22,6 +22,8 @@ filesystem:
     - ".keychain-db"
 
 network:
+  # The built-in observer emits remote IPs, not authenticated hostnames.
+  # Hostname entries apply only to integrations that supply a hostname.
   allowed_domains:
     - "localhost"
     - "127.0.0.1"
@@ -47,6 +49,8 @@ network:
     - 18789
 
 process:
+  # Built-in child observation applies the curl/wget uncertainty HALT before
+  # ordinary command-scope evaluation. Other exact forbidden commands KILL.
   allowed_commands:
     - "my-agent"
     - "bash"

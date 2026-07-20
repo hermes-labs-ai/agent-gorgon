@@ -1,11 +1,11 @@
 # AGENTS.md
 
-`agent-warden` is a user-space runtime safety guard for agent processes.
+`agent-warden` is a best-effort user-space polling guard for agent processes.
 
 ## Use it for
 
 - watching process, file, and network behavior after the agent starts running
-- enforcing policy verdicts such as SAFE, FLAG, HALT, and KILL
+- applying policy verdicts and attempting SIGSTOP/SIGKILL controls for HALT/KILL
 - generating forensic evidence after suspicious or blocked activity
 
 ## Do not use it for
@@ -25,7 +25,7 @@ pytest -q
 
 ## Output shape
 
-- the warden emits runtime verdicts and enforcement actions
+- the warden emits runtime verdicts and records attempted control outcomes
 - forensic reporting reads stored incident artifacts and produces an incident-ready summary
 
 ## Success means
@@ -39,3 +39,4 @@ pytest -q
 - using `--agent-name` when multiple matching processes exist
 - overly broad policies that create noisy early flags
 - expecting full OS visibility from `psutil.open_files()` on every platform
+- assuming activity shorter than the poll interval will always be observed

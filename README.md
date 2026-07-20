@@ -4,12 +4,10 @@ agent-warden is a user-space runtime policy guard for autonomous AI agents. It p
 process tree, applies deterministic policy to attributed observations, and records control attempts
 and forensic evidence.
 
-**Detect high-risk runtime observations and respond with SIGSTOP or SIGKILL.** Agent Warden is a
+**Detect high-risk runtime observations and attempt SIGSTOP or SIGKILL controls.** Agent Warden is a
 polling monitor, not pre-execution interposition: an action may already have started or completed
 before it is observed.
 
-[![PyPI](https://img.shields.io/pypi/v/agent-warden)](https://pypi.org/project/agent-warden/)
-[![Python](https://img.shields.io/pypi/pyversions/agent-warden)](https://pypi.org/project/agent-warden/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml)
 
@@ -19,17 +17,23 @@ cannot establish which process performed the deletion.
 
 ## Pain
 
-- Your agent ran `rm -rf` outside `/tmp` at 2am and you found out from the morning standup. The audit log was perfect; it just wasn't going to wake anyone up.
-- You added an LLM judge in front of every shell call. It's 800ms per action, doubles your cost, and still missed the 200ms read of `~/.ssh/id_rsa` because the judge isn't on the file-system event path.
-- You tried `--agent-name my-agent` once. It matched three unrelated processes including your editor. PID-target your enforcement or don't bother.
-- Your "policy YAML" is an aspirational doc, not something a process is enforcing. A policy without an enforcer is a memo.
-- You're treating runtime safety as a layer you'll add "after MVP." MVP shipped; the agent has shell access; the layer didn't.
+- Logs alone cannot pause a process after a high-risk observation.
+- An inline LLM judge does not provide process-tree, file, or network visibility and is not given
+  stop authority here.
+- Name-based targeting can select the wrong process; exact PID targeting is the safer boundary.
+- A policy file needs an active observer and explicit control outcomes to become operational
+  evidence rather than documentation alone.
 
 ## Install
 
+Agent Warden 0.1.5 is unreleased. To inspect the candidate from a source checkout:
+
 ```bash
-pip install agent-warden
+pip install -e .
 ```
+
+After the canonical distribution is published, the install command will be
+`pip install agent-warden`.
 
 After both 0.1.5 distributions are published, existing `suy-sideguy` users can upgrade through the
 compatibility release:
@@ -52,12 +56,12 @@ agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --
 `examples/` is part of the repository, not the installed wheel. From a wheel-only install, copy and
 review an example scope from the repository or supply your own scope file before running the command.
 
-Live output while the agent runs:
+Representative local log lines while the agent runs (SAFE lines require `--verbose`):
 
 ```text
-target=12345 verdict=SAFE action=continue
-target=12345 verdict=FLAG action=log_continue  reason=high_fd_count
-target=12345 verdict=HALT action=suspend       reason=suspicious_process_curl
+🛡️  Agent Warden active
+⚠️  FLAG [1/12]: process_exec: unknown-command
+🟡 HALT: Suspicious process spawned: curl
 ```
 
 After a run:
@@ -68,7 +72,9 @@ agent-warden-forensic --last-hours 24
 
 ## When to use it
 
-Use `agent-warden` when you run autonomous or semi-autonomous agents and need *userspace* runtime containment, policy enforcement, and forensic evidence — as one layer in a defense-in-depth setup.
+Use `agent-warden` when you run autonomous or semi-autonomous agents and need best-effort
+userspace runtime observation, reactive process controls, and forensic evidence as one layer in a
+defense-in-depth setup.
 
 ## When not to use it
 
@@ -83,36 +89,43 @@ Use `agent-warden` when you run autonomous or semi-autonomous agents and need *u
 ## What this tool is (and is not)
 
 ### ✅ What it does
-- Watches process, file, and network behavior for an agent process
-- Applies policy rules (optionally with a local LLM judge via Ollama)
-- **HALT** on deterministic, process-attributed triggers (SIGSTOP, a reversible pause, plus alert)
-- **KILL** severe violations with `SIGKILL` when policy requires it
+- Polls the process, file, and network signals available for an agent process tree
+- Applies deterministic policy rules; an optional local Ollama judge can only recommend SAFE/FLAG
+- Attempts **HALT** on deterministic, process-attributed triggers (SIGSTOP, a reversible pause,
+  plus a local log/report)
+- Attempts **KILL** with `SIGKILL` for deterministic severe violations
 - Stores evidence and can generate incident-ready forensic reports
 
 ### ⚠️ What it does not do
 - It is **not kernel-level enforcement** (it runs in userspace)
 - It is reactive polling, not syscall interception or a guarantee that a dangerous action is stopped before effect
 - File visibility via `psutil.open_files()` is best-effort and OS-dependent
+- Short-lived children and actions between polls can be missed; this is not complete process or
+  syscall visibility
 - Snapshot-diff create/delete observations are unattributed and never suspend or kill the monitored process
 - Network observations are remote IP/port pairs; hostname allowlists do not authenticate an observed IP
+- Signal attempts can fail or only partially cover a changing process tree; reports record the
+  observed outcome and failed HALT/KILL attempts remain retryable
 
 ---
 
 ## Install
 
-```bash
-pip install agent-warden
-```
-
-Requires Python 3.9+.
-
-For development:
+Agent Warden 0.1.5 is not yet published. For candidate development:
 
 ```bash
 git clone https://github.com/hermes-labs-ai/agent-warden.git
 cd agent-warden
 pip install -e ".[dev]"
 ```
+
+After publication:
+
+```bash
+pip install agent-warden
+```
+
+Requires Python 3.9+.
 
 ---
 
@@ -191,19 +204,22 @@ validating hard invariants and OS visibility.
 |---------|---------|----------|
 | `SAFE` | Action is within policy | Continue |
 | `FLAG` | Suspicious, below threshold | Log, continue |
-| `HALT` | Dangerous pattern detected | Suspend agent (SIGSTOP, reversible), alert operator |
-| `KILL` | Critical violation | `SIGKILL` immediately |
+| `HALT` | Dangerous pattern detected | Attempt process-tree SIGSTOP (reversible); write local evidence |
+| `KILL` | Critical violation | Attempt process-tree SIGKILL; write local evidence |
 
-### HALT triggers (SIGSTOP the agent, a reversible pause, plus alert; agent is not killed)
+### HALT triggers (attempt SIGSTOP, a reversible pause; the agent is not intentionally killed)
 - **curl or wget child observed** — unexpected outbound-data-transfer process
 - **50+ distinct process-attributed network-connection observations in 60 seconds** — bulk egress signal
 - **Process-attributed write outside allowed workspace** — unexpected filesystem access, when the OS exposes write mode
 - **3+ process-attributed `FILE_DELETE` events in 10 seconds** — available to integrations that can supply attribution; built-in snapshot diffs do not activate this trigger
+- **Relative recursive delete with no observed child cwd** — the target cannot be resolved safely,
+  so the Warden pauses instead of guessing SAFE or assigning irreversible KILL authority
 
-### KILL triggers (immediate, no recovery)
+### KILL triggers (attempt process-tree SIGKILL after observation)
 - **Attributed SSH key access** — observed read/write to `~/.ssh/` or `*id_rsa*`, `*id_ed25519*`
 - **Attributed config write** — observed write to `~/.openclaw/openclaw.json`
-- **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a configured forbidden root
+- **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a
+  configured forbidden root; relative operands are resolved against the observed child cwd
 - **Attributed forbidden-path or forbidden-extension access** — paths in `filesystem.forbidden_paths` or extensions in `filesystem.forbidden_extensions`
 
 ---
@@ -214,7 +230,7 @@ Early flag noise is normal during policy calibration on real workloads.
 
 - Treat early `FLAG` events as calibration data, not immediate defects.
 - Flags do not auto-kill by default. `WARDEN_KILL_ON_FLAGS=1` explicitly enables accumulation kills using `flag_threshold` and `flag_window`.
-- Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop conditions.
+- Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop decisions.
 - There is no audit-only switch in 0.1.5; trial the warden only against a disposable target until its deterministic controls are validated.
 
 ---

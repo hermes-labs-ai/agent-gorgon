@@ -23,15 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Runtime and privacy claims are explicit** — snapshot deletes are documented as unattributed and
   non-enforcing, nonexistent audit/confirm modes are no longer advertised, `--no-llm` disables local
   Ollama traffic, and raw-IP checks no longer use untrusted/leaky reverse DNS.
-- **HALT now enforces** — a HALT verdict SIGSTOPs the agent process tree (reversible pause, signalled once, forensic halt report written). Previously HALT only logged and the agent kept running, contradicting the documented "freeze + alert" behavior.
+- **HALT now attempts control** — a HALT verdict attempts to SIGSTOP the agent process tree
+  (reversible pause, signalled once) and records the observed outcome in a forensic report.
+  Previously HALT only logged and the agent kept running.
 - **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
 - **Credential-read then network-out exfil pattern KILLs deterministically**; a bare network-out without a preceding credential read stays HALT/FLAG.
 - **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind to them).
 - **No more SIGKILL on benign dev work** — rate-limit breaches and project-dir recursive deletes downgrade to FLAG; `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare directory (contents-glob regression closed).
+- **Relative recursive-delete targets use the observed child cwd** — `sh -c 'rm -rf .ssh'`
+  launched from the user's home now resolves to the protected credential directory; if child-cwd
+  observation is unavailable, the Warden HALTs instead of guessing SAFE. Known project cwd cleanup
+  such as `build/` and `.venv` remains benign.
 - **Shipped generic scope enforced nothing** — `examples/scope.generic.yaml` used a flat schema the parser silently read as empty allowlists; rewritten nested, and `Scope` now fails loud on legacy flat-schema keys.
 
 ### Added
-- 49 regression tests covering the above (test suite: 41 to 90).
+- Regression coverage for enforcement outcomes, observer limits, packaging compatibility, and
+  protected-delete countercontrols.
 
 ## [0.1.4] - 2026-05-30
 

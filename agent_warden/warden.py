@@ -1056,6 +1056,7 @@ class ProcessObserver:
                     for child in proc.children():
                         if child.pid not in self._known_children:
                             self._known_children.add(child.pid)
+                            child_cwd: str | None = None
                             try:
                                 # Preserve argv boundaries. A plain join loses the
                                 # distinction between a shell -c payload and later
@@ -1064,11 +1065,25 @@ class ProcessObserver:
                                 cmdline = shlex.join(child.cmdline())
                             except (psutil.AccessDenied, psutil.NoSuchProcess):
                                 cmdline = "unknown"
+                            try:
+                                observed_cwd = child.cwd()
+                                if os.path.isabs(observed_cwd):
+                                    child_cwd = os.path.normpath(observed_cwd)
+                            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                                pass
+                            details: dict[str, object] = {"child_pid": child.pid}
+                            if child_cwd is not None:
+                                details["cwd"] = child_cwd
+                            else:
+                                # Relative destructive targets cannot be resolved
+                                # safely without this observation. The rule engine
+                                # treats that case as reversible uncertainty-HALT.
+                                details["cwd_unavailable"] = True
                             actions.append(AgentAction(
                                 timestamp=now,
                                 action_type=ActionType.PROCESS_EXEC,
                                 target=cmdline,
-                                details={"child_pid": child.pid},
+                                details=details,
                                 source_pid=pid
                             ))
                 except (psutil.AccessDenied, psutil.NoSuchProcess):
@@ -1392,7 +1407,9 @@ class Warden:
 
         return False
 
-    def _is_protected_root(self, path: str) -> bool:
+    def _is_protected_root(
+        self, path: str, working_directory: str | None = None
+    ) -> bool:
         """A recursive delete of this path is catastrophic and non-recoverable:
         filesystem root, the user's home directory, or a scope forbidden_path
         (its contents, the dir itself, OR an ancestor that contains it — deleting
@@ -1464,17 +1481,21 @@ class Warden:
 
         # Scope-declared forbidden paths. Compare delete and protected path sets
         # without collapsing internal wildcard segments to their literal prefix.
-        # Match both the given (possibly relative) form and its absolute form.
+        # Resolve relative operands against the OBSERVED child cwd, never the
+        # Warden process cwd. If no child cwd is available, the caller classifies
+        # the relative recursive delete as uncertain rather than benign.
         targets = {normed}
-        if not os.path.isabs(normed):
-            targets.add(os.path.normpath(os.path.abspath(normed)))
+        if not os.path.isabs(normed) and working_directory is not None:
+            targets.add(os.path.normpath(os.path.join(working_directory, normed)))
         for pat in self.scope.forbidden_paths:
             root = self._forbidden_path_root(pat)
             if not root or root == os.sep:
                 continue
             protected_patterns = {root}
-            if not os.path.isabs(root):
-                protected_patterns.add(os.path.normpath(os.path.abspath(root)))
+            if not os.path.isabs(root) and working_directory is not None:
+                protected_patterns.add(
+                    os.path.normpath(os.path.join(working_directory, root))
+                )
             for tgt in targets:
                 for protected_pattern in protected_patterns:
                     if self._delete_target_intersects_forbidden(
@@ -1531,13 +1552,19 @@ class Warden:
 
         return tokens[index:]
 
-    def _rm_rf_protected_target(self, command: str) -> str | None:
+    def _rm_rf_protected_target(
+        self, command: str, working_directory: str | None = None
+    ) -> str | None:
         """If `command` is a recursive rm whose target is a protected root,
         return that target (→ KILL). Otherwise None. Routine recursive deletes
         of project directories are intentionally allowed to fall through to a
         FLAG at most — they are not proof of harm. Unwrap a shell ``-c`` payload
         first so an allowed shell cannot bypass this deterministic protection."""
-        decision = self._recursive_rm_decision(command)
+        # This private compatibility helper historically classified commands in
+        # the Warden cwd. Runtime enforcement does not use this default: it calls
+        # _recursive_rm_decision with the observed child cwd explicitly.
+        effective_cwd = working_directory or os.getcwd()
+        decision = self._recursive_rm_decision(command, effective_cwd)
         if decision.state == RecursiveRmState.PROTECTED:
             return decision.target
         return None
@@ -1561,7 +1588,24 @@ class Warden:
                 return False
         return True
 
-    def _classify_rm_tokens(self, tokens: list[str]) -> RecursiveRmDecision:
+    @staticmethod
+    def _rm_target_depends_on_cwd(target: str) -> bool:
+        """Whether the shell resolves this target relative to its current cwd."""
+        raw = target.strip()
+        expanded = os.path.expandvars(os.path.expanduser(raw))
+        if os.path.isabs(expanded):
+            return False
+        if raw.startswith("${HOME}"):
+            return False
+        if raw.startswith((
+            "${HOME:?", "${HOME?", "${HOME:-", "${HOME-", "${HOME:=", "${HOME=",
+        )) and "}" in raw:
+            return False
+        return True
+
+    def _classify_rm_tokens(
+        self, tokens: list[str], working_directory: str | None = None
+    ) -> RecursiveRmDecision:
         """Classify one argv-like simple command without executing it."""
         tokens = self._strip_shell_command_prefixes(tokens)
         if not tokens or os.path.basename(tokens[0]) != "rm":
@@ -1586,7 +1630,7 @@ class Warden:
         if not recursive:
             return RecursiveRmDecision(RecursiveRmState.NONE)
         for p in path_args:
-            if self._is_protected_root(p):
+            if self._is_protected_root(p, working_directory):
                 return RecursiveRmDecision(
                     RecursiveRmState.PROTECTED,
                     target=p,
@@ -1599,13 +1643,22 @@ class Warden:
                     target=p,
                     reason="recursive-rm target contains unresolved shell expansion",
                 )
+        for p in path_args:
+            if working_directory is None and self._rm_target_depends_on_cwd(p):
+                return RecursiveRmDecision(
+                    RecursiveRmState.UNCERTAIN,
+                    target=p,
+                    reason="relative recursive-rm target has no observed child cwd",
+                )
         return RecursiveRmDecision(
             RecursiveRmState.BENIGN,
             target=" ".join(path_args),
             reason="recursive-rm targets are confidently non-protected literals",
         )
 
-    def _recursive_rm_decision(self, command: str) -> RecursiveRmDecision:
+    def _recursive_rm_decision(
+        self, command: str, working_directory: str | None = None
+    ) -> RecursiveRmDecision:
         """Classify supported shell ``-c`` recursive-rm behavior tri-state.
 
         Simple commands are reduced exactly. In compound segments, an embedded
@@ -1625,7 +1678,7 @@ class Warden:
 
         base_cmd = os.path.basename(tokens[0])
         if base_cmd not in {"bash", "dash", "ksh", "sh", "zsh"}:
-            return self._classify_rm_tokens(tokens)
+            return self._classify_rm_tokens(tokens, working_directory)
 
         payload = ""
         for index, token in enumerate(tokens[1:], start=1):
@@ -1640,7 +1693,7 @@ class Warden:
         saw_benign = False
         uncertain: RecursiveRmDecision | None = None
         for segment in self._shell_command_segments(payload):
-            direct = self._classify_rm_tokens(segment)
+            direct = self._classify_rm_tokens(segment, working_directory)
             if direct.state == RecursiveRmState.PROTECTED:
                 return direct
             if direct.state == RecursiveRmState.UNCERTAIN:
@@ -1658,7 +1711,9 @@ class Warden:
             for rm_index in range(1, len(normalized)):
                 if os.path.basename(normalized[rm_index]) != "rm":
                     continue
-                embedded = self._classify_rm_tokens(normalized[rm_index:])
+                embedded = self._classify_rm_tokens(
+                    normalized[rm_index:], working_directory
+                )
                 if embedded.state in {
                     RecursiveRmState.PROTECTED,
                     RecursiveRmState.UNCERTAIN,
@@ -1863,7 +1918,10 @@ class Warden:
         # __pycache__) is routine developer cleanup — it falls through to at most
         # a FLAG, never an instant SIGKILL.
         if action.action_type in (ActionType.PROCESS_EXEC, ActionType.PROCESS_SPAWN):
-            rm_decision = self._recursive_rm_decision(action.target)
+            observed_cwd = action.details.get("cwd")
+            if not isinstance(observed_cwd, str) or not os.path.isabs(observed_cwd):
+                observed_cwd = None
+            rm_decision = self._recursive_rm_decision(action.target, observed_cwd)
             if rm_decision.state == RecursiveRmState.PROTECTED:
                 return WardenVerdict(
                     verdict=Verdict.KILL,
@@ -2301,17 +2359,29 @@ def find_process_by_name(name: str):
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Agent Warden - AI Agent Security Monitor"
+        description=(
+            "Agent Warden - best-effort user-space polling guard for an agent process tree"
+        ),
+        epilog=(
+            "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
+            "attempts. There is no audit-only or confirm mode in 0.1.5."
+        ),
     )
     parser.add_argument('--scope', required=True, help='Path to scope YAML')
-    parser.add_argument('--agent-pid', type=int, help='Agent PID')
-    parser.add_argument('--agent-name', type=str, help='Find agent by name')
+    parser.add_argument('--agent-pid', type=int, help='Exact agent PID (recommended)')
+    parser.add_argument(
+        '--agent-name', type=str,
+        help='Use the first process whose command line contains this text (can over-match)',
+    )
     parser.add_argument('--model', default='qwen3:4b', help='Ollama model (default: qwen3:4b)')
     parser.add_argument(
         '--no-llm', action='store_true',
         help='Disable the localhost Ollama probe and advisory calls',
     )
-    parser.add_argument('--poll', type=float, default=0.5, help='Poll interval sec')
+    parser.add_argument(
+        '--poll', type=float, default=0.5,
+        help='Poll interval seconds; shorter-lived activity can still be missed (default: 0.5)',
+    )
     parser.add_argument('--log-dir', type=str, help='Override log directory')
     parser.add_argument('--verbose', action='store_true', help='Show SAFE actions too')
     
