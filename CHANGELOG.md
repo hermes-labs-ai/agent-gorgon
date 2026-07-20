@@ -50,9 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Recursive-delete wrapper and glob bypasses are closed** — supported `env` execution wrappers,
   including `env -C`, are reduced before classification; root/home ancestors and first-level glob
   forms such as `/**`, `/.*`, `~/**`, `$HOME*`, and `~/..` no longer classify SAFE. Unsupported
-  wrapper or shell-expansion semantics HALT reversibly, while literal project-scoped glob cleanup
-  remains benign. Forbidden-glob intersections are decided symbolically without recursively
-  enumerating the filesystem on the monitoring hot path.
+  wrapper, dynamic-option, command-substitution, or shell-expansion semantics HALT reversibly,
+  while literal project-scoped cleanup remains benign. Observed direct argv preserves literal
+  metacharacters instead of re-expanding them as shell text. Forbidden-glob intersections are
+  decided symbolically without recursively enumerating the filesystem on the monitoring hot path.
 - **Shipped generic scope enforced nothing** — `examples/scope.generic.yaml` used a flat schema the parser silently read as empty allowlists; rewritten nested, and `Scope` now fails loud on legacy flat-schema keys.
 
 ### Added

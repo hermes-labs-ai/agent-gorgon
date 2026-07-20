@@ -1096,12 +1096,14 @@ class ProcessObserver:
                         if child.pid not in self._known_children:
                             self._known_children.add(child.pid)
                             child_cwd: str | None = None
+                            child_argv: list[str] | None = None
                             try:
                                 # Preserve argv boundaries. A plain join loses the
                                 # distinction between a shell -c payload and later
                                 # $0/$1 arguments, which can create both false
                                 # positives and bypasses in recursive-rm checks.
-                                cmdline = shlex.join(child.cmdline())
+                                child_argv = child.cmdline()
+                                cmdline = shlex.join(child_argv)
                             except (psutil.AccessDenied, psutil.NoSuchProcess):
                                 cmdline = "unknown"
                             try:
@@ -1111,6 +1113,8 @@ class ProcessObserver:
                             except (psutil.AccessDenied, psutil.NoSuchProcess):
                                 pass
                             details: dict[str, object] = {"child_pid": child.pid}
+                            if child_argv is not None:
+                                details["argv"] = child_argv
                             if child_cwd is not None:
                                 details["cwd"] = child_cwd
                             else:
@@ -1540,7 +1544,11 @@ class Warden:
         )
 
     def _is_protected_root(
-        self, path: str, working_directory: str | None = None
+        self,
+        path: str,
+        working_directory: str | None = None,
+        *,
+        shell_expansion: bool = True,
     ) -> bool | None:
         """A recursive delete of this path is catastrophic and non-recoverable:
         filesystem root, the user's home directory, or a scope forbidden_path
@@ -1558,7 +1566,7 @@ class Warden:
             "~/*", "$HOME/*", "${HOME}/*",
             "~/.*", "$HOME/.*", "${HOME}/.*",
         )
-        if raw in protected_roots:
+        if shell_expansion and raw in protected_roots:
             return True
         # ${HOME:?word} and ${HOME?word} either expand to HOME or abort the
         # shell command. Therefore deleting that expansion itself (or every
@@ -1567,7 +1575,7 @@ class Warden:
         # project-scoped descendants and similarly named variables do not
         # become false-positive KILLs.
         shell_home_candidate: str | None = None
-        for prefix in ("${HOME:?", "${HOME?"):
+        for prefix in (("${HOME:?", "${HOME?") if shell_expansion else ()):
             if raw.startswith(prefix):
                 closing_brace = raw.rfind("}")
                 if (
@@ -1587,7 +1595,10 @@ class Warden:
         # supported environment where HOME is set. Preserve the prior literal
         # root-fallback check, and also reconstruct that known HOME branch so a
         # descendant reaches the same forbidden-root matcher as ``~/.ssh``.
-        for prefix in ("${HOME:-", "${HOME-", "${HOME:=", "${HOME="):
+        for prefix in (
+            ("${HOME:-", "${HOME-", "${HOME:=", "${HOME=")
+            if shell_expansion else ()
+        ):
             if raw.startswith(prefix):
                 closing_brace = raw.find("}", len(prefix))
                 if (
@@ -1600,7 +1611,10 @@ class Warden:
                     shell_home_candidate = "~" + raw[closing_brace + 1:]
                 break
         match_path = shell_home_candidate or raw
-        expanded = os.path.expandvars(os.path.expanduser(match_path))
+        expanded = (
+            os.path.expandvars(os.path.expanduser(match_path))
+            if shell_expansion else match_path
+        )
         normed = os.path.normpath(expanded)
 
         # Apply built-in root/home protection to the path the child actually
@@ -1625,6 +1639,10 @@ class Warden:
             and self._path_covers(resolved, home)
         ):
             return True
+        if not shell_expansion and glob.has_magic(resolved):
+            # Direct argv preserves wildcard bytes literally. Avoid assigning
+            # irreversible authority through the glob-language matcher.
+            return None
         if os.path.isabs(resolved) and glob.has_magic(resolved):
             # A wildcard that can name HOME itself (for example ``$HOME*``)
             # can delete the complete home tree.
@@ -1906,10 +1924,15 @@ class Warden:
         return True
 
     @staticmethod
-    def _rm_target_depends_on_cwd(target: str) -> bool:
+    def _rm_target_depends_on_cwd(
+        target: str, *, shell_expansion: bool = True
+    ) -> bool:
         """Whether the shell resolves this target relative to its current cwd."""
         raw = target.strip()
-        expanded = os.path.expandvars(os.path.expanduser(raw))
+        expanded = (
+            os.path.expandvars(os.path.expanduser(raw))
+            if shell_expansion else raw
+        )
         if os.path.isabs(expanded):
             return False
         if raw.startswith("${HOME}"):
@@ -1921,7 +1944,11 @@ class Warden:
         return True
 
     def _rm_target_is_allowed_cleanup(
-        self, target: str, working_directory: str | None
+        self,
+        target: str,
+        working_directory: str | None,
+        *,
+        shell_expansion: bool = True,
     ) -> bool:
         """Whether a literal recursive-delete operand is scoped project cleanup.
 
@@ -1934,7 +1961,7 @@ class Warden:
         # branch of the exact ${HOME:?word}/${HOME?word} forms already accepted
         # by the protected-root classifier; general parameter expansion remains
         # uncertain earlier in the pipeline.
-        for prefix in ("${HOME:?", "${HOME?"):
+        for prefix in (("${HOME:?", "${HOME?") if shell_expansion else ()):
             if not raw.startswith(prefix):
                 continue
             closing = raw.rfind("}")
@@ -1942,7 +1969,10 @@ class Warden:
                 raw = "~" + raw[closing + 1:]
             break
 
-        expanded = os.path.expandvars(os.path.expanduser(raw))
+        expanded = (
+            os.path.expandvars(os.path.expanduser(raw))
+            if shell_expansion else raw
+        )
         resolved = os.path.normpath(expanded)
         if not os.path.isabs(resolved):
             if working_directory is None:
@@ -1952,7 +1982,11 @@ class Warden:
         return self.scope._path_matches(resolved, self.scope.allowed_paths)
 
     def _classify_rm_tokens(
-        self, tokens: list[str], working_directory: str | None = None
+        self,
+        tokens: list[str],
+        working_directory: str | None = None,
+        *,
+        shell_expansion: bool = True,
     ) -> RecursiveRmDecision:
         """Classify one argv-like simple command without executing it."""
         tokens = self._strip_shell_command_prefixes(tokens)
@@ -1964,7 +1998,10 @@ class Warden:
 
         command_word = tokens[0]
         command_stem = os.path.basename(command_word.rstrip(os.sep))
-        command_unresolved = self._rm_target_has_unresolved_expansion(command_word)
+        command_unresolved = (
+            shell_expansion
+            and self._rm_target_has_unresolved_expansion(command_word)
+        )
         recursive_hint = any(
             token.startswith("-")
             and token != "--"
@@ -1994,13 +2031,13 @@ class Warden:
                 options_ended = True
                 continue
             if not options_ended and tok.startswith("--"):
-                if self._rm_target_has_unresolved_expansion(tok):
+                if shell_expansion and self._rm_target_has_unresolved_expansion(tok):
                     unresolved_option = tok
                 if tok == "--recursive":
                     recursive = True
                 continue
             if not options_ended and tok.startswith("-") and len(tok) > 1:
-                if self._rm_target_has_unresolved_expansion(tok):
+                if shell_expansion and self._rm_target_has_unresolved_expansion(tok):
                     unresolved_option = tok
                 # short-flag cluster, e.g. -rf / -fr / -Rf / -r
                 if "r" in tok[1:] or "R" in tok[1:]:
@@ -2009,6 +2046,22 @@ class Warden:
             path_args.append(tok)
 
         if not recursive:
+            if shell_expansion:
+                unresolved_arg = next(
+                    (
+                        token for token in tokens[1:]
+                        if self._rm_target_has_unresolved_expansion(token)
+                    ),
+                    None,
+                )
+                if unresolved_arg is not None:
+                    return RecursiveRmDecision(
+                        RecursiveRmState.UNCERTAIN,
+                        target=unresolved_arg,
+                        reason=(
+                            "rm argument expansion may synthesize recursive options"
+                        ),
+                    )
             return RecursiveRmDecision(RecursiveRmState.NONE)
         if unresolved_option is not None:
             return RecursiveRmDecision(
@@ -2017,7 +2070,7 @@ class Warden:
                 reason="recursive-rm option contains unresolved shell expansion",
             )
         for p in path_args:
-            if self._rm_target_has_unresolved_expansion(p):
+            if shell_expansion and self._rm_target_has_unresolved_expansion(p):
                 return RecursiveRmDecision(
                     RecursiveRmState.UNCERTAIN,
                     target=p,
@@ -2025,7 +2078,11 @@ class Warden:
                 )
         uncertain_protection: str | None = None
         for p in path_args:
-            protection = self._is_protected_root(p, working_directory)
+            protection = self._is_protected_root(
+                p,
+                working_directory,
+                shell_expansion=shell_expansion,
+            )
             if protection is True:
                 return self._apply_wrapper_uncertainty(
                     RecursiveRmDecision(
@@ -2044,14 +2101,23 @@ class Warden:
                 reason="recursive-rm target may intersect a configured forbidden glob",
             )
         for p in path_args:
-            if working_directory is None and self._rm_target_depends_on_cwd(p):
+            if (
+                working_directory is None
+                and self._rm_target_depends_on_cwd(
+                    p, shell_expansion=shell_expansion
+                )
+            ):
                 return RecursiveRmDecision(
                     RecursiveRmState.UNCERTAIN,
                     target=p,
                     reason="relative recursive-rm target has no observed child cwd",
                 )
         for p in path_args:
-            if not self._rm_target_is_allowed_cleanup(p, working_directory):
+            if not self._rm_target_is_allowed_cleanup(
+                p,
+                working_directory,
+                shell_expansion=shell_expansion,
+            ):
                 return RecursiveRmDecision(
                     RecursiveRmState.OUT_OF_SCOPE,
                     target=p,
@@ -2066,11 +2132,113 @@ class Warden:
             wrapper_uncertainty,
         )
 
+    @staticmethod
+    def _shell_command_substitutions(payload: str) -> list[str]:
+        """Extract executable ``$(...)`` and backtick bodies conservatively.
+
+        Single quotes and backslash escapes suppress substitution. Double quotes
+        do not. This is intentionally a small recognition boundary, not a full
+        shell parser; malformed/nested bodies are left for the normal uncertain
+        handling rather than granted irreversible authority.
+        """
+        substitutions: list[str] = []
+        quote: str | None = None
+        escaped = False
+        index = 0
+
+        while index < len(payload):
+            char = payload[index]
+            if escaped:
+                escaped = False
+                index += 1
+                continue
+            if char == "\\":
+                escaped = True
+                index += 1
+                continue
+            if quote == "'":
+                if char == "'":
+                    quote = None
+                index += 1
+                continue
+            if char == "'" and quote is None:
+                quote = "'"
+                index += 1
+                continue
+            if char == '"':
+                quote = None if quote == '"' else '"'
+                index += 1
+                continue
+
+            if char == "`":
+                closing = index + 1
+                inner_escaped = False
+                while closing < len(payload):
+                    inner = payload[closing]
+                    if inner_escaped:
+                        inner_escaped = False
+                    elif inner == "\\":
+                        inner_escaped = True
+                    elif inner == "`":
+                        substitutions.append(payload[index + 1:closing])
+                        index = closing + 1
+                        break
+                    closing += 1
+                else:
+                    index += 1
+                continue
+
+            if char == "$" and index + 1 < len(payload) and payload[index + 1] == "(":
+                depth = 1
+                closing = index + 2
+                inner_quote: str | None = None
+                inner_escaped = False
+                while closing < len(payload):
+                    inner = payload[closing]
+                    if inner_escaped:
+                        inner_escaped = False
+                        closing += 1
+                        continue
+                    if inner == "\\":
+                        inner_escaped = True
+                        closing += 1
+                        continue
+                    if inner_quote == "'":
+                        if inner == "'":
+                            inner_quote = None
+                        closing += 1
+                        continue
+                    if inner == "'" and inner_quote is None:
+                        inner_quote = "'"
+                        closing += 1
+                        continue
+                    if inner == '"':
+                        inner_quote = None if inner_quote == '"' else '"'
+                        closing += 1
+                        continue
+                    if inner == "(" and inner_quote is None:
+                        depth += 1
+                    elif inner == ")" and inner_quote is None:
+                        depth -= 1
+                        if depth == 0:
+                            substitutions.append(payload[index + 2:closing])
+                            index = closing + 1
+                            break
+                    closing += 1
+                else:
+                    index += 2
+                continue
+
+            index += 1
+
+        return substitutions
+
     def _recursive_rm_decision(
         self,
         command: str,
         working_directory: str | None = None,
         *,
+        observed_argv: list[str] | None = None,
         _shell_depth: int = 0,
     ) -> RecursiveRmDecision:
         """Classify supported shell ``-c`` recursive-rm behavior tri-state.
@@ -2082,10 +2250,14 @@ class Warden:
         one token, while the output-only echo/printf controls treat later tokens
         as data rather than commands.
         """
-        try:
-            tokens = shlex.split(command)
-        except ValueError:
-            return RecursiveRmDecision(RecursiveRmState.NONE)
+        direct_argv = observed_argv is not None
+        if observed_argv is not None:
+            tokens = list(observed_argv)
+        else:
+            try:
+                tokens = shlex.split(command)
+            except ValueError:
+                return RecursiveRmDecision(RecursiveRmState.NONE)
         tokens = self._strip_shell_command_prefixes(tokens)
         tokens, working_directory, wrapper_uncertainty = self._unwrap_env_command(
             tokens, working_directory
@@ -2095,7 +2267,11 @@ class Warden:
 
         base_cmd = os.path.basename(tokens[0])
         if base_cmd not in {"bash", "dash", "ksh", "sh", "zsh"}:
-            decision = self._classify_rm_tokens(tokens, working_directory)
+            decision = self._classify_rm_tokens(
+                tokens,
+                working_directory,
+                shell_expansion=not direct_argv,
+            )
             if decision.state == RecursiveRmState.NONE and base_cmd not in {
                 "echo", "printf"
             }:
@@ -2107,7 +2283,9 @@ class Warden:
                     if os.path.basename(tokens[rm_index]) != "rm":
                         continue
                     embedded = self._classify_rm_tokens(
-                        tokens[rm_index:], working_directory
+                        tokens[rm_index:],
+                        working_directory,
+                        shell_expansion=not direct_argv,
                     )
                     if embedded.state != RecursiveRmState.NONE:
                         decision = RecursiveRmDecision(
@@ -2127,6 +2305,24 @@ class Warden:
                 break
         if not payload:
             return RecursiveRmDecision(RecursiveRmState.NONE)
+
+        if _shell_depth < 8:
+            for substitution in self._shell_command_substitutions(payload):
+                nested = self._recursive_rm_decision(
+                    shlex.join(["sh", "-c", substitution]),
+                    working_directory,
+                    _shell_depth=_shell_depth + 1,
+                )
+                if nested.state in {
+                    RecursiveRmState.OUT_OF_SCOPE,
+                    RecursiveRmState.PROTECTED,
+                    RecursiveRmState.UNCERTAIN,
+                }:
+                    return RecursiveRmDecision(
+                        RecursiveRmState.UNCERTAIN,
+                        target=nested.target,
+                        reason="recursive rm inside shell command substitution",
+                    )
 
         saw_benign = False
         uncertain: RecursiveRmDecision | None = None
@@ -2506,7 +2702,18 @@ class Warden:
             observed_cwd = action.details.get("cwd")
             if not isinstance(observed_cwd, str) or not os.path.isabs(observed_cwd):
                 observed_cwd = None
-            rm_decision = self._recursive_rm_decision(action.target, observed_cwd)
+            raw_argv = action.details.get("argv")
+            observed_argv = (
+                list(raw_argv)
+                if isinstance(raw_argv, list)
+                and all(isinstance(item, str) for item in raw_argv)
+                else None
+            )
+            rm_decision = self._recursive_rm_decision(
+                action.target,
+                observed_cwd,
+                observed_argv=observed_argv,
+            )
             if rm_decision.state == RecursiveRmState.PROTECTED:
                 return WardenVerdict(
                     verdict=Verdict.KILL,

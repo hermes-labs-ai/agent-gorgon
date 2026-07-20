@@ -220,13 +220,16 @@ validating hard invariants and OS visibility.
   remains low-noise when its observed cwd resolves inside `filesystem.allowed_paths`
 - **Recursive delete with unresolved wrapper, command, option, or target semantics** — the Warden
   pauses when exact reduction is not possible instead of guessing SAFE or assigning KILL authority
+- **Recursive delete inside executable shell command substitution** — unquoted/double-quoted
+  `` `...` `` and `$(...)` forms pause reversibly; single-quoted substitution text remains data
 
 ### KILL triggers (attempt process-tree SIGKILL after observation)
 - **Attributed SSH key access** — observed read/write to `~/.ssh/` or `*id_rsa*`, `*id_ed25519*`
 - **Attributed config write** — observed write to `~/.openclaw/openclaw.json`
 - **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a
   configured forbidden root; relative operands are resolved against the observed child cwd, and
-  supported `env` wrappers plus root/home glob and ancestor forms are reduced before classification
+  supported `env` wrappers plus root/home glob and ancestor forms are reduced before classification;
+  direct child argv is preserved so literal `~`, `$HOME`, and wildcard bytes are not re-expanded
 - **Attributed credential read with active or newly observed non-local network egress** — an
   established external socket at read time, or a new external connection inside the configured
   short window, activates the correlation; IP loopback IPC is exempt and does not disarm it

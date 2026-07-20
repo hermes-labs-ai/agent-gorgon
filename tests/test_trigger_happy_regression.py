@@ -526,6 +526,41 @@ def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
         assert "unresolved shell expansion" in verdict.reason.lower(), cmd
 
 
+def test_dynamic_rm_option_cannot_synthesize_recursive_delete_as_safe():
+    """An expanded rm argv item may become ``-rf`` even without a literal flag."""
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+
+    verdict = asyncio.run(
+        w.evaluate_action(_exec("sh -c 'F=-rf; rm $F ~/.ssh'"))
+    )
+
+    assert verdict.verdict == Verdict.HALT
+    assert "synthesize recursive options" in verdict.reason.lower()
+
+
+def test_recursive_rm_inside_command_substitution_halts_reversibly():
+    """echo/printf arguments can execute substitutions before rendering data."""
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+
+    for cmd in (
+        "sh -c 'echo `rm -rf ~/.ssh`'",
+        'sh -c \'printf "%s\\n" "$(rm -rf ~/.ssh)"\'',
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "command substitution" in verdict.reason.lower(), cmd
+
+    # Single quotes suppress shell substitution; the text remains data.
+    quoted = asyncio.run(
+        w.evaluate_action(_exec("sh -c \"echo '\u0024(rm -rf ~/.ssh)'\""))
+    )
+    assert quoted.verdict == Verdict.SAFE
+
+
 def test_literal_home_project_cleanup_remains_benign():
     """Known HOME plus a literal project suffix stays routine cleanup."""
     w = _warden()
@@ -788,7 +823,11 @@ def test_observer_records_child_cwd_for_process_exec(monkeypatch, tmp_path):
 
     assert len(actions) == 1
     assert actions[0].target == "sh -c 'rm -rf .ssh'"
-    assert actions[0].details == {"child_pid": 2468, "cwd": str(tmp_path)}
+    assert actions[0].details == {
+        "argv": ["sh", "-c", "rm -rf .ssh"],
+        "child_pid": 2468,
+        "cwd": str(tmp_path),
+    }
 
 
 def test_observer_marks_child_cwd_unavailable(monkeypatch):
@@ -827,7 +866,39 @@ def test_observer_marks_child_cwd_unavailable(monkeypatch):
     actions = observer.observe()
 
     assert len(actions) == 1
-    assert actions[0].details == {"child_pid": 2468, "cwd_unavailable": True}
+    assert actions[0].details == {
+        "argv": ["sh", "-c", "rm -rf .ssh"],
+        "child_pid": 2468,
+        "cwd_unavailable": True,
+    }
+
+
+def test_direct_argv_literal_shell_metacharacters_do_not_kill(tmp_path):
+    """Direct exec argv does not expand literal ``~`` or ``$HOME`` operands."""
+    project = tmp_path / "project"
+    project.mkdir()
+    w = _cred_warden()
+    w.scope.allowed_commands.append("rm")
+    w.scope.allowed_paths.extend([str(project), f"{project}/**"])
+
+    for literal in ("~", "$HOME", "*"):
+        argv = ["rm", "-rf", literal]
+        action = AgentAction(
+            timestamp=_now_iso(),
+            action_type=ActionType.PROCESS_EXEC,
+            target=warden_module.shlex.join(argv),
+            details={"argv": argv, "cwd": str(project)},
+        )
+        verdict = asyncio.run(w.evaluate_action(action))
+        assert verdict.verdict != Verdict.KILL, literal
+
+    shell = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c 'rm -rf ~'",
+        details={"argv": ["sh", "-c", "rm -rf ~"], "cwd": str(project)},
+    )
+    assert asyncio.run(w.evaluate_action(shell)).verdict == Verdict.KILL
 
 
 def test_observer_refreshes_current_established_connections(monkeypatch):
