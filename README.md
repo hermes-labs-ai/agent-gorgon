@@ -26,20 +26,16 @@ cannot establish which process performed the deletion.
 
 ## Install
 
-Agent Warden 0.1.5 is unreleased. To inspect the candidate from a source checkout:
+Install the canonical distribution from PyPI:
 
 ```bash
-pip install -e .
+pip install agent-warden==0.1.5
 ```
 
-After the canonical distribution is published, the install command will be
-`pip install agent-warden`.
-
-After both 0.1.5 distributions are published, existing `suy-sideguy` users can upgrade through the
-compatibility release:
+Existing `suy-sideguy` users can upgrade through the 0.1.5 compatibility release:
 
 ```bash
-pip install --upgrade suy-sideguy
+pip install --upgrade suy-sideguy==0.1.5
 ```
 
 The 0.1.5 compatibility release installs the matching `agent-warden` distribution and temporarily forwards the
@@ -112,18 +108,18 @@ defense-in-depth setup.
 
 ## Install
 
-Agent Warden 0.1.5 is not yet published. For candidate development:
+Install from PyPI:
+
+```bash
+pip install agent-warden==0.1.5
+```
+
+For contributor development from a source checkout:
 
 ```bash
 git clone https://github.com/hermes-labs-ai/agent-warden.git
 cd agent-warden
 pip install -e ".[dev]"
-```
-
-After publication:
-
-```bash
-pip install agent-warden
 ```
 
 Requires Python 3.9+.
