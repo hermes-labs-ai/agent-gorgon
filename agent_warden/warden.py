@@ -1787,6 +1787,26 @@ class Warden:
         """Keep uncertain wrappers reversible when recursive rm is present."""
         if uncertainty is None or decision.state == RecursiveRmState.NONE:
             return decision
+        if uncertainty in {
+            "env wrapper changes HOME for recursive-rm evaluation",
+            "env wrapper unsets HOME for recursive-rm evaluation",
+        }:
+            target = decision.target or ""
+            try:
+                target_tokens = shlex.split(target)
+            except ValueError:
+                target_tokens = [target]
+            depends_on_home = (
+                "$HOME" in target
+                or "${HOME" in target
+                or any(token.startswith("~") for token in target_tokens)
+            )
+            if not depends_on_home:
+                # An exact HOME assignment/unset cannot change literal `/`, an
+                # absolute forbidden path, or ordinary literal project cleanup.
+                # Preserve the already-proven decision instead of weakening a
+                # protected-root KILL to HALT.
+                return decision
         return RecursiveRmDecision(
             RecursiveRmState.UNCERTAIN,
             target=decision.target,

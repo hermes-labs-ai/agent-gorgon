@@ -222,6 +222,43 @@ def test_uncertain_env_wrapper_halts_recursive_delete_reversibly():
     assert "split-string" in split_verdict.reason.lower()
 
 
+def test_env_home_wrapper_preserves_home_independent_rm_decisions():
+    """Exact HOME mutation cannot downgrade literal root or benign cleanup."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["env", "sh"])
+    w.judge.available = False
+
+    for cmd in (
+        "env HOME=/tmp rm -rf /",
+        "env -u HOME rm -rf /",
+        "env --unset=HOME sh -c 'rm -rf /'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.KILL, cmd
+
+    for cmd in (
+        "env HOME=/tmp rm -rf build",
+        "env -u HOME sh -c 'rm -rf .venv'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.SAFE, cmd
+
+
+def test_env_home_wrapper_keeps_home_dependent_target_reversible():
+    """A changed HOME plus a HOME-derived operand remains uncertain, not KILL."""
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["env", "sh"])
+    w.judge.available = False
+
+    for cmd in (
+        "env HOME=/tmp sh -c 'rm -rf $HOME/.ssh'",
+        "env -u HOME sh -c 'rm -rf ${HOME:-/}'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "env wrapper" in verdict.reason.lower(), cmd
+
+
 def test_unknown_execution_wrapper_with_recursive_rm_halts_not_flags():
     """A wrapper observed before exec cannot suppress all process control."""
     w = _warden()
