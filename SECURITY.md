@@ -16,8 +16,30 @@ Preferred process:
 ## Operator hardening checklist
 
 Before production use:
-- Start in audit-first mode and validate policy against real workloads.
+- Agent Warden 0.1.5 has no audit-only mode; it evaluates deterministic HALT/KILL rules and
+  attempts their configured controls while running;
+  validate first against a disposable target and reviewed low-disruption scope.
+- Treat it as a best-effort polling guard, not a sandbox or syscall interceptor. Short-lived
+  children and actions between polls can be missed.
+- HALT/KILL are signal attempts, not guaranteed outcomes. Inspect the recorded control result;
+  process-tree changes and OS permissions can produce partial or failed controls. Retry state is
+  reconciled against the visible process tree; one KILL episode reuses its rollback/report receipt.
+- Credential-read correlation treats the complete IP loopback ranges as IPC rather than egress.
+  An active non-local socket at read time or a later newly observed non-local connection inside the
+  correlation window activates the deterministic exfil KILL rule.
+- Relative recursive-delete operands are evaluated against the observed child cwd. If cwd capture
+  is unavailable, Agent Warden HALTs rather than classifying the delete SAFE.
+  Literal recursive-delete targets outside `filesystem.allowed_paths` also HALT. Conventional
+  relative project/build cleanup stays low-noise only when its observed cwd resolves the operand
+  inside the allowlist; allowing a shell does not allow arbitrary filesystem operands.
+  Supported `env` wrappers and root/home glob or ancestor forms are reduced before classification;
+  unresolved wrapper or shell-expansion semantics also HALT rather than acquiring irreversible
+  KILL authority. Dynamic rm arguments that could synthesize recursive flags and executable shell
+  command substitutions HALT. Direct child argv retains literal metacharacter semantics. Forbidden-
+  glob intersections are decided symbolically without a recursive filesystem glob walk in process-
+  event evaluation.
+- Use `--no-llm` if action/scope data must not be sent to a localhost Ollama service.
 - Prefer `--agent-pid` over process-name matching.
 - Keep scope allowlists narrow and explicit.
 - Store logs on protected storage and define rotation/retention.
-- Pair with inbound protections (for example, Little Canary) for layered defense.
+- Add separate inbound and kernel-isolation controls when those threat boundaries matter.

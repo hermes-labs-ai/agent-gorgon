@@ -7,13 +7,13 @@ import os
 import tempfile
 
 
-from suy_sideguy.warden import (
+from agent_warden.warden import (
     ActionType,
     AgentAction,
     Verdict,
     Warden,
 )
-from suy_sideguy.intent_match import (
+from agent_warden.intent_match import (
     check_intent_match,
     classify_instruction,
 )
@@ -81,7 +81,7 @@ def test_halt_verdict_value_is_string():
 
 def test_halt_verdict_importable_from_enforcement():
     """Verdict (with HALT) must be importable directly from enforcement module."""
-    from suy_sideguy.warden import Verdict as EnfVerdict
+    from agent_warden.warden import Verdict as EnfVerdict
     assert EnfVerdict.HALT is Verdict.HALT
 
 
@@ -248,8 +248,11 @@ def test_kill_on_id_rsa_access():
     assert "ssh key" in v.reason.lower()
 
 
-def test_kill_on_rm_rf_non_tmp():
-    """rm -rf on non-tmp paths must trigger KILL."""
+def test_rm_rf_non_protected_path_does_not_kill():
+    """rm -rf of a non-protected project path is routine cleanup, NOT a kill.
+
+    (Was previously an instant SIGKILL on any non-/tmp path — that trigger-happy
+    behavior is the bug being fixed.)"""
     w = _warden()
     w.judge.available = False
     action = AgentAction(
@@ -258,8 +261,7 @@ def test_kill_on_rm_rf_non_tmp():
         target="rm -rf /home/user/documents",
     )
     v = asyncio.run(w.evaluate_action(action))
-    assert v.verdict == Verdict.KILL
-    assert "rm -rf" in v.reason.lower()
+    assert v.verdict != Verdict.KILL
 
 
 def test_halt_does_not_kill():

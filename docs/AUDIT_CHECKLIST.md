@@ -1,11 +1,13 @@
-# Suy Sideguy Audit Checklist
+# Agent Warden Audit Checklist
 
-Use this checklist before switching from audit-only to stronger enforcement.
+Use this checklist before deploying against important workloads or enabling
+`WARDEN_KILL_ON_FLAGS=1`. Agent Warden 0.1.5 has no audit-only switch and always applies its
+deterministic HALT/KILL rules while running.
 
 ## A) Input Data Quality
 - [ ] `~/.local/share/sysmond/logs/actions_*.jsonl` exists and is fresh
 - [ ] `~/.local/share/sysmond/logs/incidents/*.json` exists (if any kills)
-- [ ] Canary logs present (`security/canary-audit.jsonl`, `security/canary-alerts.jsonl`)
+- [ ] Any optional integration evidence is identified separately from Warden observations
 
 ## B) Signal Quality Review
 - [ ] Top 20 `FLAG` reasons reviewed
@@ -24,10 +26,10 @@ Use this checklist before switching from audit-only to stronger enforcement.
 - [ ] hard invariants validated as immediate stop conditions
 
 ## E) Promotion Gate
-- [ ] No false kills in last 48h
+- [ ] Disposable-target control attempts match the reviewed policy
 - [ ] All critical scenario tests trigger expected response
-- [ ] Operator override path tested and audited
+- [ ] Failed or partial SIGSTOP/SIGKILL attempts are surfaced and understood
 
 ## F) Report Output
-- [ ] `suy-forensic-report --last-hours 24` exported and archived
-- [ ] Summary shared with: action counts, flags, incidents, kill reasons, overrides
+- [ ] `agent-warden-forensic --last-hours 24` exported and archived
+- [ ] Summary includes action counts, flags, incidents, control reasons, and observed outcomes

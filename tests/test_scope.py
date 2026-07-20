@@ -1,8 +1,9 @@
+import socket
 import tempfile
 
 import pytest
 
-from suy_sideguy.warden import Scope, Verdict
+from agent_warden.warden import Scope, Verdict
 
 
 SCOPE_YAML = """
@@ -49,6 +50,27 @@ def test_scope_command_and_network_checks():
     assert scope.check_command("curl https://example.com")[0] == Verdict.KILL
     assert scope.check_network("api.example.com", 443)[0] == Verdict.SAFE
     assert scope.check_network("api.evil.com", 443)[0] == Verdict.KILL
+
+
+def test_observed_ip_never_uses_reverse_dns_for_allowlisting(monkeypatch):
+    scope = _make_scope()
+
+    def _unexpected_ptr_lookup(_address: str):
+        raise AssertionError("raw IP policy checks must not perform reverse DNS")
+
+    monkeypatch.setattr(socket, "gethostbyaddr", _unexpected_ptr_lookup)
+    verdict, reason = scope.check_network("203.0.113.10", 443)
+
+    assert verdict == Verdict.FLAG
+    assert "203.0.113.10" in reason
+
+
+def test_raw_ip_can_be_allowlisted_explicitly():
+    scope = _make_scope()
+    scope.allowed_domains = ["203.0.113.10"]
+
+    assert scope.check_network("203.0.113.10", 443)[0] == Verdict.SAFE
+    assert scope.check_network("2001:db8::1", 443)[0] == Verdict.FLAG
 
 
 def test_scope_handles_empty_yaml():

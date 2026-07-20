@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=82.0.1", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "suy-sideguy"
+version = "0.1.5"
+description = "Temporary compatibility shim for the agent-warden package."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "Rolando Bosch" }]
+classifiers = [
+  "Development Status :: 7 - Inactive",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = ["agent-warden==0.1.5"]
+
+[project.scripts]
+suy-warden = "suy_sideguy._compat_cli:warden"
+suy-forensic-report = "suy_sideguy._compat_cli:forensic_report"
+
+[project.urls]
+Homepage = "https://github.com/hermes-labs-ai/agent-warden"
+Repository = "https://github.com/hermes-labs-ai/agent-warden"
+Documentation = "https://github.com/hermes-labs-ai/agent-warden#readme"
+Issues = "https://github.com/hermes-labs-ai/agent-warden/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]

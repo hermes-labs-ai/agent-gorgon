@@ -1,27 +1,27 @@
 # agent-warden
 
-agent-warden is a runtime policy guard for autonomous agent processes.
+agent-warden is a best-effort user-space polling guard for autonomous agent processes.
 
 Use this repo when you need to:
-- monitor process, file, and network behavior after an agent starts
-- classify runtime behavior into SAFE, FLAG, HALT, or KILL
+- observe available process, file, and network signals after an agent starts
+- classify observed runtime behavior into SAFE, FLAG, HALT, or KILL
 - generate forensic evidence after a policy incident
 
 Primary commands:
-- `suy-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
-- `suy-forensic-report --last-hours 24`
+- `agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
+- `agent-warden-forensic --last-hours 24`
 
 Outputs:
 - runtime verdicts
-- enforcement decisions
+- attempted process-control decisions and their recorded outcomes
 - incident artifacts and forensic summaries
 
 Do not use this repo as:
 - a kernel sandbox
 - a prompt injection detector
 - a guarantee that one policy scope safely covers every deployment
+- complete attribution, complete OS visibility, or pre-execution interception
 
 ## About Hermes Labs
 
 Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. More at [hermes-labs.ai](https://hermes-labs.ai).
-

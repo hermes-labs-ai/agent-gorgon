@@ -1,0 +1,9 @@
+include AGENTS.md
+include CHANGELOG.md
+include LICENSE
+include README.md
+include SECURITY.md
+include llms.txt
+recursive-include examples *.yaml
+recursive-include tests *.py
+recursive-include compat/suy-sideguy *.md *.py *.toml LICENSE

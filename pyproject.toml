@@ -3,12 +3,12 @@ requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "suy-sideguy"
-version = "0.1.4"
-description = "Runtime policy guard for autonomous AI agents with user-space enforcement and forensic reporting."
+name = "agent-warden"
+version = "0.1.5"
+description = "Best-effort user-space polling guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [{ name = "Rolando Bosch" }]
 keywords = ["runtime-agent-guard", "ai-agent-security", "runtime-monitoring", "incident-response", "policy-enforcement", "forensics"]
 classifiers = [
@@ -33,23 +33,23 @@ dependencies = [
 dev = [
   "pytest>=8.4.2",
   "ruff>=0.15.15",
-  "mypy>=1.19.1",
+  "mypy>=1.19.1,<2",
   "types-PyYAML>=6.0.12.20250915",
 ]
 
 [project.scripts]
-suy-warden = "suy_sideguy.warden:entrypoint"
-suy-forensic-report = "suy_sideguy.forensic_report:main"
+agent-warden = "agent_warden.warden:entrypoint"
+agent-warden-forensic = "agent_warden.forensic_report:main"
 
 [project.urls]
-Homepage = "https://github.com/hermes-labs-ai/suy-sideguy"
-Repository = "https://github.com/hermes-labs-ai/suy-sideguy"
-Documentation = "https://github.com/hermes-labs-ai/suy-sideguy#readme"
-Issues = "https://github.com/hermes-labs-ai/suy-sideguy/issues"
-Changelog = "https://github.com/hermes-labs-ai/suy-sideguy/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hermes-labs-ai/agent-warden"
+Repository = "https://github.com/hermes-labs-ai/agent-warden"
+Documentation = "https://github.com/hermes-labs-ai/agent-warden#readme"
+Issues = "https://github.com/hermes-labs-ai/agent-warden/issues"
+Changelog = "https://github.com/hermes-labs-ai/agent-warden/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["suy_sideguy"]
+packages = ["agent_warden"]
 
 [tool.ruff]
 line-length = 100
@@ -57,6 +57,7 @@ target-version = "py39"
 
 [tool.mypy]
 python_version = "3.9"
-files = ["suy_sideguy"]
+files = ["agent_warden"]
+follow_imports = "skip"
 ignore_missing_imports = true
 warn_unused_ignores = true

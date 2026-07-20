@@ -18,10 +18,10 @@ dist/
 coverage.xml
 htmlcov/
 
-# Suy Sideguy logs
+# Agent Warden logs
 .local/
 security/INCIDENT_REPORT_*.json
 
 # Local audit scratch files
 docs/internal/
-docs/SUYSIDEGUY_AUDIT_*.json
+docs/AGENT_WARDEN_AUDIT_*.json

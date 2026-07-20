@@ -1,4 +1,4 @@
-# Publish Checklist — suy-sideguy
+# Publish Checklist — agent-warden + suy-sideguy compatibility shim
 
 ## Pre-release essentials
 
@@ -7,8 +7,8 @@
 - [ ] `pip install -U pip`
 - [ ] `pip install -e '.[dev]'`
 - [ ] `pytest` passes
-- [ ] `python -m suy_sideguy.warden --help` works
-- [ ] `python -m suy_sideguy.forensic_report --help` works
+- [ ] `python -m agent_warden.warden --help` works
+- [ ] `python -m agent_warden.forensic_report --help` works
 
 ## Documentation
 
@@ -21,11 +21,23 @@
 ## Packaging sanity
 
 - [ ] `python -m pip install build`
-- [ ] `python -m build` succeeds
-- [ ] Verify wheel/sdist include package + docs expected for release
+- [ ] `python -m build` succeeds for the repository root
+- [ ] `python -m build compat/suy-sideguy` succeeds
+- [ ] Verify `agent-warden` owns only `agent_warden` and the new entry points
+- [ ] Verify `suy-sideguy` owns only `suy_sideguy` and the legacy entry points
+- [ ] Verify both wheel/sdist pairs include the Apache-2.0 license
+- [ ] Verify the shim pins the exact matching `agent-warden` version
 - [ ] Validate console entry points:
-  - [ ] `suy-warden --help`
-  - [ ] `suy-forensic-report --help`
+  - [ ] `agent-warden --help`
+  - [ ] `agent-warden-forensic --help`
+  - [ ] `suy-warden --help` forwards and warns
+  - [ ] `suy-forensic-report --help` forwards and warns
+- [ ] In a fresh environment, install `agent-warden` from local artifacts and run new imports/CLIs
+- [ ] In a second fresh environment, install local `suy-sideguy==0.1.4`, upgrade it to the
+      local shim, and run both legacy and canonical imports/CLIs
+- [ ] Repeat the upgrade from the currently published predecessor
+      (`suy-sideguy==0.1.3` when this RC was prepared)
+- [ ] Run the canonical CLI with `--no-llm` and verify no localhost advisory request occurs
 
 ## Security/reliability checks
 
@@ -42,6 +54,10 @@
 
 ## Release step
 
+- [ ] Publish the canonical `agent-warden` artifact before the dependent shim artifact
+- [ ] Keep the compatibility window through `agent-warden` 0.3.x and no earlier than
+      2026-10-10 unless the owner records a different window
 - [ ] Commit with release-prep message
-- [ ] Tag release (e.g., `v0.1.0-alpha.1`)
+- [ ] Replace the changelog's `Unreleased` marker with the actual release date
+- [ ] Tag release `v0.1.5`
 - [ ] Publish release notes with known limitations
