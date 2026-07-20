@@ -179,6 +179,30 @@ def test_symlink_aliased_roots_dedup_to_one(tmp_path):
     assert obs._scope_roots == [str(real)]  # first spelling kept, alias dropped
 
 
+def test_literal_symlink_scope_root_is_opened_by_pinned_target(tmp_path):
+    """A configured /tmp-style alias is scanned without following child links."""
+    real = tmp_path / "real"
+    real.mkdir()
+    visible = real / "visible.txt"
+    visible.write_text("visible")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    hidden = outside / "hidden.txt"
+    hidden.write_text("hidden")
+    (real / "escape").symlink_to(outside, target_is_directory=True)
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    obs = _observer([f"{link}/**"])
+    files, capped = obs._snapshot_scope_files()
+
+    assert capped is False
+    assert obs._scope_roots == [str(link)]
+    assert obs._scope_root_open_paths == {str(link): str(real)}
+    assert files == {str(link / "visible.txt"), str(link / "escape")}
+    assert str(link / "escape" / "hidden.txt") not in files
+
+
 def test_no_scope_means_no_roots_and_diff_is_a_noop():
     obs = ProcessObserver(os.getpid())  # backward-compatible: scope optional
     assert obs._scope_roots == []

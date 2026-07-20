@@ -23,6 +23,8 @@ Before production use:
   children and actions between polls can be missed.
 - HALT/KILL are signal attempts, not guaranteed outcomes. Inspect the recorded control result;
   process-tree changes and OS permissions can produce partial or failed controls.
+- Credential-read correlation treats localhost as IPC rather than egress; a later non-local
+  connection inside the correlation window still activates the deterministic exfil KILL rule.
 - Relative recursive-delete operands are evaluated against the observed child cwd. If cwd capture
   is unavailable, Agent Warden HALTs rather than classifying the delete SAFE.
   Supported `env` wrappers and root/home glob or ancestor forms are reduced before classification;

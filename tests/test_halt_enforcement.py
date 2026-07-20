@@ -439,6 +439,29 @@ def test_cred_read_then_netout_kills_across_pids_in_tree():
     assert v.verdict == Verdict.KILL
 
 
+def test_credential_read_then_localhost_ipc_stays_safe_but_window_remains_armed():
+    """Local Ollama/IPC is not egress; later external traffic still is."""
+    w = _warden()
+    w.judge.available = False
+    asyncio.run(w.evaluate_action(_read("/tmp/safe/app.credentials", pid=1000)))
+
+    local = asyncio.run(w.evaluate_action(_netout("127.0.0.1:11434", pid=2000)))
+    external = asyncio.run(w.evaluate_action(_netout("8.8.8.8:443", pid=2000)))
+
+    assert local.verdict == Verdict.SAFE
+    assert "localhost" in local.reason.lower()
+    assert external.verdict == Verdict.KILL
+
+    ipv6 = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.NETWORK_OUT,
+        target="[::1]:11434",
+        details={"remote_ip": "::1", "remote_port": 11434},
+        source_pid=2000,
+    )
+    assert asyncio.run(w.evaluate_action(ipv6)).verdict == Verdict.SAFE
+
+
 def test_credential_read_write_handle_then_netout_kills():
     """A '+' file mode permits reading even though the observer preserves the
     stronger FILE_WRITE classification for the same handle."""

@@ -27,8 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (reversible pause, signalled once) and records the observed outcome in a forensic report.
   Previously HALT only logged and the agent kept running.
 - **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
-- **Credential-read then network-out exfil pattern KILLs deterministically**; a bare network-out without a preceding credential read stays HALT/FLAG.
-- **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind to them).
+- **Credential-read then non-local network-out exfil pattern KILLs deterministically**; a bare
+  network-out without a preceding credential read stays HALT/FLAG, and localhost IPC stays SAFE
+  without disarming a later external-egress correlation.
+- **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic
+  FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind
+  to them). Literal symlink roots such as macOS `/tmp` are opened through a pinned concrete target
+  while evidence retains the configured path spelling; descendant symlinks are not traversed.
 - **No more SIGKILL on benign dev work** — rate-limit breaches and project-dir recursive deletes downgrade to FLAG; `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare directory (contents-glob regression closed).
 - **Relative recursive-delete targets use the observed child cwd** — `sh -c 'rm -rf .ssh'`
   launched from the user's home now resolves to the protected credential directory; if child-cwd

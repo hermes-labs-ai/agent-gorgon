@@ -347,6 +347,22 @@ def test_shell_expansion_in_rm_command_or_option_halts_reversibly():
         assert "unresolved shell expansion" in verdict.reason.lower(), cmd
 
 
+def test_shell_brace_expansion_in_recursive_rm_halts_reversibly():
+    """Bash/zsh brace expansion cannot synthesize a protected operand unseen."""
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["bash", "zsh"])
+    w.judge.available = False
+    for cmd in (
+        "bash -c 'rm -rf {/,/tmp/x}'",
+        "bash -c 'rm -rf ~/{.ssh,.aws}'",
+        "zsh -c 'rm -rf ~/.{ssh,aws}'",
+        "bash -c 'rm -rf /tmp/item-{1..3}'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "unresolved shell expansion" in verdict.reason.lower(), cmd
+
+
 def test_quoted_shell_operator_byte_remains_part_of_path():
     """A quoted semicolon is data, not a command separator or filesystem root."""
     w = _warden()

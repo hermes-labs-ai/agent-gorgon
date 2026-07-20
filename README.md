@@ -223,6 +223,8 @@ validating hard invariants and OS visibility.
 - **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a
   configured forbidden root; relative operands are resolved against the observed child cwd, and
   supported `env` wrappers plus root/home glob and ancestor forms are reduced before classification
+- **Attributed credential read followed by non-local network egress** — correlation within the
+  configured short window; localhost IPC is exempt and does not disarm later external correlation
 - **Attributed forbidden-path or forbidden-extension access** — paths in `filesystem.forbidden_paths` or extensions in `filesystem.forbidden_extensions`
 
 ---

@@ -782,6 +782,11 @@ class ProcessObserver:
         # hostile or accidental pattern cannot create a different unbounded walk.
         self._scope_root_cap: int = 1_024
         self._scope_root_expansion_capped: bool = False
+        # Logical scope spelling -> pinned concrete directory used for fd opens.
+        # This lets a literal alias such as macOS /tmp -> /private/tmp remain
+        # observable without following descendant symlinks or changing emitted
+        # paths to their resolved spelling.
+        self._scope_root_open_paths: dict[str, str] = {}
         self._scope_roots: list[str] = self._compute_scope_roots(scope)
         # Decouple the walk from the (0.5s) process poll so a large tree doesn't
         # get re-walked every poll. Snapshot at most every ~1s (monotonic gate).
@@ -823,6 +828,7 @@ class ProcessObserver:
         if scope is None:
             return []
         self._scope_root_expansion_capped = False
+        self._scope_root_open_paths = {}
         roots: list[str] = []
         seen_real: set[str] = set()
         for pat in getattr(scope, "allowed_paths", []) or []:
@@ -882,6 +888,7 @@ class ProcessObserver:
                     return roots
                 seen_real.add(real)
                 roots.append(root)
+                self._scope_root_open_paths[root] = real
         return roots
 
     def _snapshot_scope_files(self) -> tuple[set[str], bool]:
@@ -896,13 +903,16 @@ class ProcessObserver:
         self._scope_roots = self._compute_scope_roots(self.scope)
         if self._scope_root_expansion_capped:
             return found, True
-        stack: list[str] = list(self._scope_roots)
+        stack: list[tuple[str, str]] = [
+            (root, self._scope_root_open_paths.get(root, root))
+            for root in self._scope_roots
+        ]
         seen_dirs: set[str] = set()
         while stack:
-            d = stack.pop()
-            if d in seen_dirs:
+            logical_dir, open_dir = stack.pop()
+            if open_dir in seen_dirs:
                 continue
-            seen_dirs.add(d)
+            seen_dirs.add(open_dir)
             directory_fd: int | None = None
             try:
                 # Open the directory itself without following a symlink. This
@@ -911,15 +921,16 @@ class ProcessObserver:
                 open_flags = os.O_RDONLY
                 open_flags |= getattr(os, "O_DIRECTORY", 0)
                 open_flags |= getattr(os, "O_NOFOLLOW", 0)
-                directory_fd = os.open(d, open_flags)
+                directory_fd = os.open(open_dir, open_flags)
                 with os.scandir(directory_fd) as it:
                     for entry in it:
                         try:
-                            entry_path = os.path.join(d, entry.name)
+                            entry_path = os.path.join(logical_dir, entry.name)
+                            open_entry_path = os.path.join(open_dir, entry.name)
                             # follow_symlinks=False avoids symlink cycles and
                             # double-walking the /tmp -> /private/tmp alias.
                             if entry.is_dir(follow_symlinks=False):
-                                stack.append(entry_path)
+                                stack.append((entry_path, open_entry_path))
                             else:
                                 found.add(entry_path)
                                 if len(found) > self._snapshot_file_cap:
@@ -1799,6 +1810,18 @@ class Warden:
         raw = target.strip()
         if "`" in raw or "$(" in raw:
             return True
+        # Bash/zsh brace expansion happens after observation but before exec.
+        # shlex intentionally does not retain enough quoting context to reduce
+        # it without false irreversible authority, so comma/range forms HALT.
+        for opening in range(len(raw)):
+            if raw[opening] != "{":
+                continue
+            closing = raw.find("}", opening + 1)
+            if closing > opening and (
+                "," in raw[opening + 1:closing]
+                or ".." in raw[opening + 1:closing]
+            ):
+                return True
         if "$" not in raw:
             return False
         if raw.startswith("$HOME") and (
@@ -2117,9 +2140,9 @@ class Warden:
         return False
 
     def _track_and_check_exfil(self, action: AgentAction) -> WardenVerdict | None:
-        """Record credential reads per pid; on a NETWORK_OUT that FOLLOWS a
-        credential read within ``cred_exfil_window`` seconds, return KILL — the
-        real exfil signature (read a secret, then ship it out).
+        """Record credential reads per pid; on a non-local NETWORK_OUT that
+        FOLLOWS a credential read within ``cred_exfil_window`` seconds, return
+        KILL — the real exfil signature (read a secret, then ship it out).
 
         A bare network-out with NO preceding credential read returns None, so
         benign curl/pip stay HALT/FLAG per the existing rules. Tree-scoped: the
@@ -2142,6 +2165,19 @@ class Warden:
             return None
 
         if action.action_type == ActionType.NETWORK_OUT and self.credential_reads:
+            remote_value = action.details.get("remote_ip")
+            if remote_value is None:
+                if action.target.startswith("[") and "]" in action.target:
+                    remote_value = action.target[1:action.target.index("]")]
+                else:
+                    remote_value = action.target.rsplit(":", 1)[0]
+            remote = str(remote_value)
+            port = action.details.get("remote_port", 443)
+            _network_verdict, network_reason = self.scope.check_network(remote, port)
+            # Localhost is IPC, not egress. Keep the credential-read window
+            # armed so a later non-local connection is still caught.
+            if network_reason.startswith("Localhost connection:"):
+                return None
             last_read = max(
                 t for reads in self.credential_reads.values() for t in reads
             )
@@ -2324,9 +2360,9 @@ class Warden:
 
         # Hardcoded KILL checks (highest priority) — attributed actions only.
         # Defense-in-depth: record credential reads + fire the deterministic
-        # credential-read-then-network-out exfil KILL. Runs first so a
-        # network-out that follows a credential touch is caught BEFORE the
-        # (benign) localhost / allowed-domain network check would clear it.
+        # credential-read-then-non-local-network-out exfil KILL. Runs first so
+        # an otherwise allowed external destination cannot erase the correlated
+        # signal; the exfil reducer itself explicitly exempts localhost IPC.
         exfil_verdict = self._track_and_check_exfil(action)
         if exfil_verdict is not None:
             return exfil_verdict
