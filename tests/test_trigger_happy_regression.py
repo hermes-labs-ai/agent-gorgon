@@ -53,7 +53,16 @@ def _scope_file() -> str:
 
 
 def _warden() -> Warden:
-    return Warden(scope_path=_scope_file(), agent_pid=os.getpid(), poll_interval=0.01)
+    w = Warden(scope_path=_scope_file(), agent_pid=os.getpid(), poll_interval=0.01)
+    project_cwd = os.getcwd()
+    home_project = os.path.expanduser("~/project")
+    w.scope.allowed_paths.extend([
+        project_cwd,
+        f"{project_cwd}/**",
+        home_project,
+        f"{home_project}/**",
+    ])
+    return w
 
 
 # A realistic scope whose forbidden_paths are CONTENTS globs of credential dirs,
@@ -80,6 +89,14 @@ def _cred_warden() -> Warden:
         f.write(CRED_SCOPE_YAML)
         path = f.name
     w = Warden(scope_path=path, agent_pid=os.getpid(), poll_interval=0.01)
+    project_cwd = os.getcwd()
+    home_project = os.path.expanduser("~/project")
+    w.scope.allowed_paths.extend([
+        project_cwd,
+        f"{project_cwd}/**",
+        home_project,
+        f"{home_project}/**",
+    ])
     w.judge.available = False
     return w
 
@@ -171,6 +188,16 @@ def test_allowed_shell_halts_out_of_scope_recursive_delete(
         assert verdict.verdict == Verdict.HALT, cmd
         assert "outside allowed filesystem scope" in verdict.reason.lower(), cmd
 
+    relative_outside = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c 'rm -rf build'",
+        details={"cwd": "/etc"},
+    )
+    verdict = asyncio.run(w.evaluate_action(relative_outside))
+    assert verdict.verdict == Verdict.HALT
+    assert "outside allowed filesystem scope" in verdict.reason.lower()
+
     for cmd in (
         f"sh -c 'rm -rf {workspace}/cache'",
         "sh -c 'rm -rf build .venv node_modules'",
@@ -235,6 +262,7 @@ def test_env_chdir_preserves_relative_delete_safety_and_project_cleanup(
     monkeypatch.setenv("HOME", str(home))
     w = _cred_warden()
     w.scope.allowed_commands.extend(["env", "sh"])
+    w.scope.allowed_paths.extend([str(project), f"{project}/**"])
     w.judge.available = False
 
     protected = AgentAction(
@@ -927,6 +955,7 @@ def test_relative_project_cleanup_with_known_child_cwd_stays_safe(tmp_path):
     project.mkdir()
     w = _cred_warden()
     w.scope.allowed_commands.extend(["sh"])
+    w.scope.allowed_paths.extend([str(project), f"{project}/**"])
     action = AgentAction(
         timestamp=_now_iso(),
         action_type=ActionType.PROCESS_EXEC,

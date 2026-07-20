@@ -216,8 +216,8 @@ validating hard invariants and OS visibility.
 - **Relative recursive delete with no observed child cwd** — the target cannot be resolved safely,
   so the Warden pauses instead of guessing SAFE or assigning irreversible KILL authority
 - **Recursive delete outside allowed filesystem scope** — arbitrary literal targets do not become
-  SAFE merely because their `sh`/`bash` wrapper is allowed; conventional relative project cleanup,
-  the explicit `~/project` countercontrol, and targets inside `filesystem.allowed_paths` remain low-noise
+  SAFE merely because their `sh`/`bash` wrapper is allowed; conventional relative project cleanup
+  remains low-noise when its observed cwd resolves inside `filesystem.allowed_paths`
 - **Recursive delete with unresolved wrapper, command, option, or target semantics** — the Warden
   pauses when exact reduction is not possible instead of guessing SAFE or assigning KILL authority
 

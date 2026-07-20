@@ -39,8 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to them). Literal symlink roots such as macOS `/tmp` are opened through a pinned concrete target
   while evidence retains the configured path spelling; descendant symlinks are not traversed.
 - **No more SIGKILL on benign dev work** — rate-limit breaches do not kill, and conventional
-  relative project/build cleanup remains low-noise. Arbitrary recursive-delete operands outside
-  the filesystem allowlist HALT reversibly instead of becoming SAFE through an allowed shell;
+  relative project/build cleanup inside the filesystem allowlist remains low-noise. Arbitrary
+  recursive-delete operands outside the allowlist HALT reversibly instead of becoming SAFE through an allowed shell;
   `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare
   directory (contents-glob regression closed).
 - **Relative recursive-delete targets use the observed child cwd** — `sh -c 'rm -rf .ssh'`

@@ -1920,19 +1920,14 @@ class Warden:
             return False
         return True
 
-    _PROJECT_CLEANUP_COMPONENTS = frozenset({
-        ".venv", "__pycache__", "build", "dist", "node_modules", "project",
-        "target",
-    })
-
     def _rm_target_is_allowed_cleanup(
         self, target: str, working_directory: str | None
     ) -> bool:
         """Whether a literal recursive-delete operand is scoped project cleanup.
 
-        Filesystem allowlists remain authoritative for arbitrary operands. A
-        deliberately small set of conventional build/project directories keeps
-        the low-noise cleanup behavior that motivated the recursive-rm change.
+        Filesystem allowlists remain authoritative for every operand. Relative
+        conventional cleanup remains low-noise when its observed child cwd
+        resolves it inside the configured project/workspace scope.
         """
         raw = target.strip()
         # Under the supported environment HOME is known. Reduce the successful
@@ -1948,26 +1943,13 @@ class Warden:
             break
 
         expanded = os.path.expandvars(os.path.expanduser(raw))
-        was_relative = not os.path.isabs(expanded)
         resolved = os.path.normpath(expanded)
-        if was_relative:
-            relative_root = resolved.split(os.sep, 1)[0]
-            if relative_root in self._PROJECT_CLEANUP_COMPONENTS:
-                return True
+        if not os.path.isabs(resolved):
             if working_directory is None:
                 return False
             resolved = os.path.normpath(os.path.join(working_directory, resolved))
 
-        if self.scope._path_matches(resolved, self.scope.allowed_paths):
-            return True
-
-        # Preserve the explicit literal HOME/project countercontrol without
-        # making any arbitrary absolute path ending in `project` or `build`
-        # exempt from the filesystem allowlist.
-        home_project = os.path.normpath(
-            os.path.join(os.path.expanduser("~"), "project")
-        )
-        return resolved == home_project or resolved.startswith(home_project + os.sep)
+        return self.scope._path_matches(resolved, self.scope.allowed_paths)
 
     def _classify_rm_tokens(
         self, tokens: list[str], working_directory: str | None = None
