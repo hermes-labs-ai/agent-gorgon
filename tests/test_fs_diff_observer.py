@@ -331,6 +331,27 @@ def test_cadence_gate_skips_walk_until_min_interval_elapses(tmp_path):
     assert obs._scope_snapshot is baseline  # snapshot untouched
 
 
+def test_cadence_gate_ignores_backward_wall_clock_step(monkeypatch, tmp_path):
+    """Elapsed snapshot cadence must use a monotonic, not civil, clock."""
+    (tmp_path / "a.txt").write_text("x")
+    obs = ProcessObserver(os.getpid(), scope=_FakeScope([f"{tmp_path}/**"]))
+    obs._snapshot_min_interval = 1.0
+    wall_times = iter([1_000.0, 900.0])
+    monotonic_times = iter([100.0, 102.0])
+    monkeypatch.setattr(warden_module.time, "time", lambda: next(wall_times))
+    monkeypatch.setattr(
+        warden_module.time, "monotonic", lambda: next(monotonic_times)
+    )
+
+    obs._diff_scope_filesystem(_now_iso(), [])
+    created = tmp_path / "b.txt"
+    created.write_text("x")
+    actions: list = []
+    obs._diff_scope_filesystem(_now_iso(), actions)
+
+    assert [action.target for action in actions] == [str(created)]
+
+
 # ── routing: unattributed diffs observe but never enforce ───────────────────
 
 _ROUTING_SCOPE = """

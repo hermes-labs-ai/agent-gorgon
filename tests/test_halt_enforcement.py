@@ -423,6 +423,25 @@ def test_kill_agent_reports_failed_child_pid(monkeypatch):
     assert result["pids_failed"] == [2001]
 
 
+def test_kill_agent_treats_missing_root_as_no_live_target(monkeypatch):
+    """A root that exited before SIGKILL is complete, not a failed control."""
+
+    def missing(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(psutil, "Process", missing)
+
+    result = Killswitch(2000).kill_agent()
+
+    assert result == {
+        "killed": True,
+        "pids_terminated": [],
+        "pids_failed": [],
+        "already_gone": [2000],
+        "errors": [],
+    }
+
+
 def test_retry_kill_pids_treats_already_gone_as_complete(monkeypatch):
     """A child that exits before retry must clear, not strand, the episode."""
 
@@ -437,6 +456,7 @@ def test_retry_kill_pids_treats_already_gone_as_complete(monkeypatch):
         "killed": True,
         "pids_terminated": [],
         "pids_failed": [],
+        "already_gone": [2001],
         "errors": [],
     }
 

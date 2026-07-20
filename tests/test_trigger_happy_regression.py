@@ -740,6 +740,29 @@ def test_shell_positional_args_are_not_reinterpreted_as_rm_targets():
         assert v.verdict != Verdict.KILL, cmd
 
 
+def test_direct_env_chdir_preserves_literal_tilde_argv(tmp_path):
+    """Direct argv `env -C ~` names a literal child of cwd, not HOME."""
+    literal_tilde = tmp_path / "~"
+    literal_tilde.mkdir()
+    w = _cred_warden()
+    w.scope.allowed_paths = [str(tmp_path), f"{tmp_path}/**"]
+    w.scope.allowed_commands.extend(["env"])
+    w.judge.available = False
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="env -C '~' rm -rf .ssh",
+        details={
+            "cwd": str(tmp_path),
+            "argv": ["env", "-C", "~", "rm", "-rf", ".ssh"],
+        },
+    )
+
+    verdict = asyncio.run(w.evaluate_action(action))
+
+    assert verdict.verdict == Verdict.SAFE
+
+
 def test_rm_rf_home_kills():
     w = _warden()
     w.judge.available = False

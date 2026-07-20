@@ -181,6 +181,41 @@ def test_failed_kill_attempt_remains_retryable_and_report_is_truthful(monkeypatc
     assert report["kill_execution"]["errors"] == ["denied"]
 
 
+def test_already_gone_kill_report_is_complete_without_claiming_termination(
+    monkeypatch, tmp_path
+):
+    w = Warden(
+        scope_path=_scope_file(),
+        agent_pid=os.getpid(),
+        log_dir=str(tmp_path / "logs"),
+    )
+    verdict = _flag_verdict()
+    verdict.verdict = Verdict.KILL
+    monkeypatch.setattr(
+        w.killswitch,
+        "kill_agent",
+        lambda: {
+            "killed": True,
+            "pids_terminated": [],
+            "pids_failed": [],
+            "already_gone": [w.agent_pid],
+            "errors": [],
+        },
+    )
+
+    asyncio.run(w.execute_kill(verdict))
+
+    import json
+
+    incident = next((tmp_path / "logs" / "incidents").glob("*.json"))
+    report = json.loads(incident.read_text(encoding="utf-8"))
+    assert w.killed is True
+    assert w.pending_kill is None
+    assert report["incident_report"]["status"] == "NO_LIVE_TARGET"
+    assert report["liability_statement"]["agent_process_terminated"] is False
+    assert report["liability_statement"]["termination_method"] == "NO_LIVE_TARGET"
+
+
 def test_llm_unavailable_fallback_path():
     w = _warden()
     w.judge.available = False

@@ -512,8 +512,16 @@ class IncidentLogger:
             and kill_result.get("pids_terminated")
             and not kill_result.get("errors")
         )
+        no_live_target = bool(
+            kill_result.get("killed")
+            and kill_result.get("already_gone")
+            and not kill_result.get("pids_terminated")
+            and not kill_result.get("errors")
+        )
         if terminated:
             control_status = "AGENT_TERMINATED"
+        elif no_live_target:
+            control_status = "NO_LIVE_TARGET"
         elif kill_result:
             control_status = "TERMINATION_FAILED"
         else:
@@ -552,7 +560,11 @@ class IncidentLogger:
                     "and kill_execution fields before drawing incident conclusions."
                 ),
                 "agent_process_terminated": terminated,
-                "termination_method": "SIGKILL" if terminated else "SIGKILL_ATTEMPTED",
+                "termination_method": (
+                    "SIGKILL"
+                    if terminated
+                    else ("NO_LIVE_TARGET" if no_live_target else "SIGKILL_ATTEMPTED")
+                ),
                 "rollback_attempted": bool(rollback_result.get("attempted")),
                 "rollback_details": rollback_result or None,
             },
@@ -656,6 +668,7 @@ class Killswitch:
         killed = False
         pids_terminated: list[int] = []
         pids_failed: list[int] = []
+        already_gone: list[int] = []
         errors: list[str] = []
 
         try:
@@ -667,7 +680,7 @@ class Killswitch:
                     child.kill()
                     pids_terminated.append(child.pid)
                 except psutil.NoSuchProcess:
-                    pass
+                    already_gone.append(child.pid)
                 except Exception as e:
                     pids_failed.append(child.pid)
                     errors.append(f"Child {child.pid}: {e}")
@@ -677,6 +690,7 @@ class Killswitch:
                 pids_terminated.append(self.agent_pid)
                 killed = True
             except psutil.NoSuchProcess:
+                already_gone.append(self.agent_pid)
                 killed = True
             except Exception as e:
                 pids_failed.append(self.agent_pid)
@@ -684,7 +698,7 @@ class Killswitch:
 
         except psutil.NoSuchProcess:
             killed = True
-            errors.append(f"PID {self.agent_pid} already gone")
+            already_gone.append(self.agent_pid)
         except Exception as e:
             pids_failed.append(self.agent_pid)
             errors.append(f"Killswitch error: {e}")
@@ -696,6 +710,7 @@ class Killswitch:
             "killed": killed,
             "pids_terminated": pids_terminated,
             "pids_failed": pids_failed,
+            "already_gone": already_gone,
             "errors": errors,
         }
 
@@ -708,6 +723,7 @@ class Killswitch:
         """
         pids_terminated: list[int] = []
         pids_failed: list[int] = []
+        already_gone: list[int] = []
         errors: list[str] = []
         for pid in dict.fromkeys(pids):
             try:
@@ -715,7 +731,7 @@ class Killswitch:
                 pids_terminated.append(pid)
             except psutil.NoSuchProcess:
                 # Already gone satisfies the retry for this exact PID.
-                pass
+                already_gone.append(pid)
             except Exception as e:
                 pids_failed.append(pid)
                 errors.append(f"Retry PID {pid}: {e}")
@@ -723,6 +739,7 @@ class Killswitch:
             "killed": not pids_failed,
             "pids_terminated": pids_terminated,
             "pids_failed": pids_failed,
+            "already_gone": already_gone,
             "errors": errors,
         }
 
@@ -1015,7 +1032,7 @@ class ProcessObserver:
         if self.scope is None or not getattr(self.scope, "allowed_paths", None):
             return
         # Cadence gate: bound walk cost independently of the process poll rate.
-        mono = time.time()
+        mono = time.monotonic()
         if mono - self._last_snapshot_ts < self._snapshot_min_interval:
             return
         self._last_snapshot_ts = mono
@@ -1229,6 +1246,7 @@ class Warden:
         self.start_time = time.time()
         self.running = False
         self.killed = False
+        self.kill_target_already_gone = False
         # A failed one-shot KILL observation is de-duplicated by the observer.
         # Persist its verdict so the next poll retries enforcement without
         # requiring the underlying event to be emitted again.
@@ -1777,7 +1795,11 @@ class Warden:
 
     @classmethod
     def _unwrap_env_command(
-        cls, tokens: list[str], working_directory: str | None
+        cls,
+        tokens: list[str],
+        working_directory: str | None,
+        *,
+        shell_expansion: bool = True,
     ) -> tuple[list[str], str | None, str | None]:
         """Unwrap one supported ``env`` execution prefix.
 
@@ -1834,10 +1856,17 @@ class Warden:
                 chdir_arg = token[2:]
                 index += 1
             if chdir_arg is not None:
-                if cls._rm_target_has_unresolved_expansion(chdir_arg):
+                if (
+                    shell_expansion
+                    and cls._rm_target_has_unresolved_expansion(chdir_arg)
+                ):
                     uncertainty = "env wrapper chdir contains unresolved expansion"
                     continue
-                expanded = os.path.expandvars(os.path.expanduser(chdir_arg))
+                expanded = (
+                    os.path.expandvars(os.path.expanduser(chdir_arg))
+                    if shell_expansion
+                    else chdir_arg
+                )
                 if os.path.isabs(expanded):
                     effective_cwd = os.path.normpath(expanded)
                 elif effective_cwd is not None:
@@ -2047,7 +2076,7 @@ class Warden:
         """Classify one argv-like simple command without executing it."""
         tokens = self._strip_shell_command_prefixes(tokens)
         tokens, working_directory, wrapper_uncertainty = self._unwrap_env_command(
-            tokens, working_directory
+            tokens, working_directory, shell_expansion=shell_expansion
         )
         if not tokens:
             return RecursiveRmDecision(RecursiveRmState.NONE)
@@ -2336,7 +2365,7 @@ class Warden:
                 return RecursiveRmDecision(RecursiveRmState.NONE)
         tokens = self._strip_shell_command_prefixes(tokens)
         tokens, working_directory, wrapper_uncertainty = self._unwrap_env_command(
-            tokens, working_directory
+            tokens, working_directory, shell_expansion=not direct_argv
         )
         if not tokens:
             return RecursiveRmDecision(RecursiveRmState.NONE)
@@ -3202,6 +3231,7 @@ class Warden:
             self._kill_episode_rollback = None
             self._kill_episode_attempts = []
             self._kill_episode_pending_pids = []
+            self.kill_target_already_gone = False
         
         self.log.critical(f"🔴 KILL: {verdict.reason}")
         self.log.critical(f"   Action: {verdict.action.action_type.value} -> {verdict.action.target}")
@@ -3226,6 +3256,16 @@ class Warden:
             kill_result.get("killed")
             and not kill_result.get("errors")
             and not self._kill_episode_pending_pids
+        )
+        episode_terminated = bool(kill_result.get("pids_terminated")) or any(
+            attempt.get("pids_terminated")
+            for attempt in self._kill_episode_attempts
+        )
+        terminated = bool(self.killed and episode_terminated)
+        self.kill_target_already_gone = bool(
+            self.killed
+            and kill_result.get("already_gone")
+            and not episode_terminated
         )
         self.pending_kill = None if self.killed else verdict
         self._kill_episode_attempts.append(kill_result)
@@ -3261,13 +3301,25 @@ class Warden:
             report["kill_execution"] = kill_result
             report["kill_attempts"] = self._kill_episode_attempts
             report["incident_report"]["status"] = (
-                "AGENT_TERMINATED" if self.killed else "TERMINATION_FAILED"
+                "AGENT_TERMINATED"
+                if terminated
+                else (
+                    "NO_LIVE_TARGET"
+                    if self.kill_target_already_gone
+                    else "TERMINATION_FAILED"
+                )
             )
             report["liability_statement"][
                 "agent_process_terminated"
-            ] = self.killed
+            ] = terminated
             report["liability_statement"]["termination_method"] = (
-                "SIGKILL" if self.killed else "SIGKILL_ATTEMPTED"
+                "SIGKILL"
+                if terminated
+                else (
+                    "NO_LIVE_TARGET"
+                    if self.kill_target_already_gone
+                    else "SIGKILL_ATTEMPTED"
+                )
             )
             with open(report_path, 'w') as f:
                 json.dump(report, f, indent=2)
@@ -3422,7 +3474,10 @@ class Warden:
                       f"Safe: {safe} | Flags: {flags} | Halts: {halts} | "
                       f"Kills: {kills}")
         if self.killed:
-            self.log.info("   ⚠️  AGENT WAS TERMINATED")
+            if self.kill_target_already_gone:
+                self.log.info("   ⚠️  KILL target was already no longer live")
+            else:
+                self.log.info("   ⚠️  AGENT WAS TERMINATED")
 
 
 # ════════════════════════════════════════════════════════════
