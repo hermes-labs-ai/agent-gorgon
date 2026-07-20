@@ -359,6 +359,37 @@ def test_quoted_and_echoed_rm_text_is_not_enforcement_evidence():
         assert "uncertain compound" not in verdict.reason.lower(), cmd
 
 
+def test_shell_comments_do_not_become_recursive_delete_evidence():
+    """Only unquoted, unescaped ``#`` at a shell token boundary starts a comment."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+
+    safe_commands = (
+        "sh -c '# rm -fr /'",
+        "sh -c 'echo ok # rm -rf /'",
+        "sh -c 'echo start\n# rm -rf /\necho end'",
+        "sh -c 'rm -rf build # routine cleanup'",
+        "sh -c \"rm -rf '/#'\"",
+        r"sh -c 'rm -rf /\#'",
+    )
+    for cmd in safe_commands:
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.SAFE, cmd
+        assert "uncertain compound" not in verdict.reason.lower(), cmd
+
+    kill_commands = (
+        "sh -c 'rm -rf / # destructive command before comment'",
+        "sh -c '# harmless comment\nrm -rf /'",
+        "sh -c 'rm -rf /\n# trailing comment'",
+        "sh -c \"echo '#'; rm -rf /\"",
+        r"sh -c 'echo \#; rm -rf /'",
+    )
+    for cmd in kill_commands:
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.KILL, cmd
+
+
 def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
     """An unresolved target cannot silently acquire either SAFE or KILL."""
     w = _warden()

@@ -2102,6 +2102,70 @@ class Warden:
         return RecursiveRmDecision(RecursiveRmState.NONE)
 
     @staticmethod
+    def _strip_shell_comments(payload: str) -> str:
+        """Remove POSIX-style shell comments without rewriting shell words.
+
+        An unquoted, unescaped ``#`` starts a comment only at the beginning of
+        a word. Newlines are retained because they still terminate the current
+        simple command. This intentionally leaves quoted and escaped ``#``
+        bytes for :mod:`shlex` to interpret as ordinary argument content.
+        """
+        stripped: list[str] = []
+        quote: str | None = None
+        escaped = False
+        at_word_start = True
+        index = 0
+
+        while index < len(payload):
+            char = payload[index]
+
+            if escaped:
+                stripped.append(char)
+                escaped = False
+                at_word_start = False
+                index += 1
+                continue
+
+            if quote is not None:
+                stripped.append(char)
+                if char == quote:
+                    quote = None
+                elif char == "\\" and quote == '"':
+                    escaped = True
+                index += 1
+                continue
+
+            if char == "\\":
+                stripped.append(char)
+                escaped = True
+                at_word_start = False
+                index += 1
+                continue
+
+            if char in {"'", '"'}:
+                stripped.append(char)
+                quote = char
+                at_word_start = False
+                index += 1
+                continue
+
+            if char == "#" and at_word_start:
+                while index < len(payload) and payload[index] != "\n":
+                    index += 1
+                continue
+
+            stripped.append(char)
+            if char == "\n" or char in ";&|()":
+                at_word_start = True
+            elif char in " \t\r":
+                at_word_start = True
+            else:
+                at_word_start = False
+            index += 1
+
+        return "".join(stripped)
+
+    @staticmethod
     def _shell_command_segments(payload: str) -> list[list[str]]:
         """Tokenize simple shell compounds without confusing quoted operators.
 
@@ -2111,6 +2175,7 @@ class Warden:
         normal argument byte. The resulting argv-like segments are inspected,
         never executed.
         """
+        payload = Warden._strip_shell_comments(payload)
         try:
             lexer = shlex.shlex(
                 payload, posix=True, punctuation_chars=";&|()\n"
