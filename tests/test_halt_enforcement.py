@@ -395,6 +395,52 @@ def test_suspend_agent_reports_partial_child_failure_as_incomplete(monkeypatch):
     assert result["errors"] == ["Child 2001: (pid=2001)"]
 
 
+def test_kill_agent_reports_failed_child_pid(monkeypatch):
+    """A partial tree kill must retain exact descendants for later retry."""
+
+    class DeniedChild:
+        pid = 2001
+
+        def kill(self):
+            raise psutil.AccessDenied(self.pid)
+
+    class FakeParent:
+        pid = 2000
+
+        def children(self, recursive=True):
+            assert recursive is True
+            return [DeniedChild()]
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr(psutil, "Process", lambda pid: FakeParent())
+
+    result = Killswitch(2000).kill_agent()
+
+    assert result["killed"] is False
+    assert result["pids_terminated"] == [2000]
+    assert result["pids_failed"] == [2001]
+
+
+def test_retry_kill_pids_treats_already_gone_as_complete(monkeypatch):
+    """A child that exits before retry must clear, not strand, the episode."""
+
+    def missing(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(psutil, "Process", missing)
+
+    result = Killswitch(2000).kill_pids([2001])
+
+    assert result == {
+        "killed": True,
+        "pids_terminated": [],
+        "pids_failed": [],
+        "errors": [],
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # PART B — deterministic credential-read-then-network-out KILL
 # ══════════════════════════════════════════════════════════════════════════
@@ -702,6 +748,59 @@ def test_partial_kill_with_child_error_stays_pending_until_complete(
     report = json.loads(reports[0].read_text(encoding="utf-8"))
     assert report["incident_report"]["status"] == "AGENT_TERMINATED"
     assert len(report["kill_attempts"]) == 2
+
+
+def test_partial_kill_retries_failed_child_after_parent_exit(
+    monkeypatch, tmp_path
+):
+    """A dead root must not discard retry state for a denied live child."""
+    w = _warden(tmp_path)
+    w.enable_llm = False
+    retry_calls = []
+    monkeypatch.setattr(
+        w.killswitch,
+        "kill_agent",
+        lambda: {
+            "killed": False,
+            "pids_terminated": [w.agent_pid],
+            "pids_failed": [4322],
+            "errors": ["Child 4322: denied"],
+        },
+    )
+
+    def retry_children(pids):
+        retry_calls.append(list(pids))
+        return {
+            "killed": True,
+            "pids_terminated": [4322],
+            "pids_failed": [],
+            "errors": [],
+        }
+
+    monkeypatch.setattr(w.killswitch, "kill_pids", retry_children, raising=False)
+    verdict = _halt_verdict()
+    verdict.verdict = Verdict.KILL
+
+    asyncio.run(w.execute_kill(verdict))
+    assert w.pending_kill is verdict
+    assert w._kill_episode_pending_pids == [4322]
+
+    class GoneParentObserver:
+        @staticmethod
+        def is_agent_alive():
+            return False
+
+        @staticmethod
+        def observe():
+            raise AssertionError("pending child retry must precede observation")
+
+    w.observer = GoneParentObserver()
+    asyncio.run(w.run())
+
+    assert retry_calls == [[4322]]
+    assert w.killed is True
+    assert w.pending_kill is None
+    assert w._kill_episode_pending_pids == []
 
 
 def test_failed_kill_retry_reuses_rollback_and_incident(monkeypatch, tmp_path):

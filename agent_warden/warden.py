@@ -654,6 +654,7 @@ class Killswitch:
     def kill_agent(self) -> dict:
         killed = False
         pids_terminated: list[int] = []
+        pids_failed: list[int] = []
         errors: list[str] = []
 
         try:
@@ -667,6 +668,7 @@ class Killswitch:
                 except psutil.NoSuchProcess:
                     pass
                 except Exception as e:
+                    pids_failed.append(child.pid)
                     errors.append(f"Child {child.pid}: {e}")
 
             try:
@@ -676,18 +678,52 @@ class Killswitch:
             except psutil.NoSuchProcess:
                 killed = True
             except Exception as e:
+                pids_failed.append(self.agent_pid)
                 errors.append(f"Agent {self.agent_pid}: {e}")
 
         except psutil.NoSuchProcess:
             killed = True
             errors.append(f"PID {self.agent_pid} already gone")
         except Exception as e:
+            pids_failed.append(self.agent_pid)
             errors.append(f"Killswitch error: {e}")
 
         # A terminated parent is not a completed tree kill when any observed
         # descendant could not be terminated. Keep the episode retryable.
         killed = killed and not errors
-        return {"killed": killed, "pids_terminated": pids_terminated, "errors": errors}
+        return {
+            "killed": killed,
+            "pids_terminated": pids_terminated,
+            "pids_failed": pids_failed,
+            "errors": errors,
+        }
+
+    def kill_pids(self, pids: list[int]) -> dict:
+        """Retry exact failed tree members after their original parent exits.
+
+        A prior partial kill can remove the monitored root while leaving a
+        denied child alive. The root can no longer rediscover that child, so the
+        failed PID set is durable episode state and is retried directly.
+        """
+        pids_terminated: list[int] = []
+        pids_failed: list[int] = []
+        errors: list[str] = []
+        for pid in dict.fromkeys(pids):
+            try:
+                psutil.Process(pid).kill()
+                pids_terminated.append(pid)
+            except psutil.NoSuchProcess:
+                # Already gone satisfies the retry for this exact PID.
+                pass
+            except Exception as e:
+                pids_failed.append(pid)
+                errors.append(f"Retry PID {pid}: {e}")
+        return {
+            "killed": not pids_failed,
+            "pids_terminated": pids_terminated,
+            "pids_failed": pids_failed,
+            "errors": errors,
+        }
 
     def suspend_agent(self) -> dict:
         """SIGSTOP the agent process tree — a *reversible* pause (not SIGKILL).
@@ -1198,6 +1234,7 @@ class Warden:
         self._kill_episode_report_path: str | None = None
         self._kill_episode_rollback: dict | None = None
         self._kill_episode_attempts: list[dict] = []
+        self._kill_episode_pending_pids: list[int] = []
         # HALT gives a *reversible* pause (SIGSTOP). Signal the tree ONCE, then
         # reconcile the real process state before suppressing a later signal.
         self.suspended = False
@@ -3113,11 +3150,21 @@ class Warden:
             self._kill_episode_report_path = None
             self._kill_episode_rollback = None
             self._kill_episode_attempts = []
+            self._kill_episode_pending_pids = []
         
         self.log.critical(f"🔴 KILL: {verdict.reason}")
         self.log.critical(f"   Action: {verdict.action.action_type.value} -> {verdict.action.target}")
         
-        kill_result = self.killswitch.kill_agent()
+        if retry and self._kill_episode_pending_pids:
+            kill_result = self.killswitch.kill_pids(
+                self._kill_episode_pending_pids
+            )
+        else:
+            kill_result = self.killswitch.kill_agent()
+        raw_failed_pids = kill_result.get("pids_failed", [])
+        self._kill_episode_pending_pids = [
+            pid for pid in raw_failed_pids if isinstance(pid, int)
+        ]
         self.log.critical(
             "   SIGKILL attempt: "
             f"success={kill_result['killed']} "
@@ -3126,8 +3173,8 @@ class Warden:
         )
         self.killed = bool(
             kill_result.get("killed")
-            and kill_result.get("pids_terminated")
             and not kill_result.get("errors")
+            and not self._kill_episode_pending_pids
         )
         self.pending_kill = None if self.killed else verdict
         self._kill_episode_attempts.append(kill_result)
@@ -3204,6 +3251,19 @@ class Warden:
         while self.running:
             try:
                 if not self.observer.is_agent_alive():
+                    if (
+                        self.pending_kill is not None
+                        and self._kill_episode_pending_pids
+                    ):
+                        self.log.warning(
+                            "Agent root ended with failed descendant KILLs; "
+                            "retrying the exact pending PIDs."
+                        )
+                        await self.execute_kill(self.pending_kill, retry=True)
+                        if self.killed:
+                            break
+                        await asyncio.sleep(self.poll_interval)
+                        continue
                     self.pending_kill = None
                     self.pending_halt = None
                     self.log.info("Agent ended. Warden shutting down.")
