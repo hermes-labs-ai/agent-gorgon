@@ -219,7 +219,8 @@ validating hard invariants and OS visibility.
 - **Attributed SSH key access** — observed read/write to `~/.ssh/` or `*id_rsa*`, `*id_ed25519*`
 - **Attributed config write** — observed write to `~/.openclaw/openclaw.json`
 - **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a
-  configured forbidden root; relative operands are resolved against the observed child cwd
+  configured forbidden root; relative operands are resolved against the observed child cwd, and
+  supported `env` wrappers plus root/home glob and ancestor forms are reduced before classification
 - **Attributed forbidden-path or forbidden-extension access** — paths in `filesystem.forbidden_paths` or extensions in `filesystem.forbidden_extensions`
 
 ---

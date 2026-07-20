@@ -1471,13 +1471,43 @@ class Warden:
         expanded = os.path.expandvars(os.path.expanduser(match_path))
         normed = os.path.normpath(expanded)
 
+        # Apply built-in root/home protection to the path the child actually
+        # resolves. This closes both relative-parent forms (``~/..`` or ``..``
+        # from HOME) and glob forms that erase entries immediately below a
+        # protected root (``/**``, ``/.*``, ``~/**``). A wildcard below a
+        # literal project component, such as ``~/project/*`` or
+        # ``/tmp/project/*``, remains ordinary project cleanup.
+        resolved = normed
+        if not os.path.isabs(resolved) and working_directory is not None:
+            resolved = os.path.normpath(os.path.join(working_directory, resolved))
+
         # Filesystem root
-        if normed == os.sep:
+        if resolved == os.sep:
             return True
-        # Home directory itself (but NOT subdirectories of it)
+        # Home itself or any literal ancestor that contains it. Descendants of
+        # HOME are handled only by declared forbidden paths.
         home = os.path.normpath(os.path.expanduser("~"))
-        if normed == home:
+        if (
+            os.path.isabs(resolved)
+            and not glob.has_magic(resolved)
+            and self._path_covers(resolved, home)
+        ):
             return True
+        if os.path.isabs(resolved) and glob.has_magic(resolved):
+            # A wildcard that can name HOME itself (for example ``$HOME*``)
+            # can delete the complete home tree.
+            if self._glob_path_matches(resolved, home):
+                return True
+            for protected_root in (os.sep, home):
+                try:
+                    relative = os.path.relpath(resolved, protected_root)
+                except ValueError:
+                    continue
+                if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+                    continue
+                first_component = relative.split(os.sep, 1)[0]
+                if glob.has_magic(first_component):
+                    return True
 
         # Scope-declared forbidden paths. Compare delete and protected path sets
         # without collapsing internal wildcard segments to their literal prefix.
@@ -1552,6 +1582,118 @@ class Warden:
 
         return tokens[index:]
 
+    @classmethod
+    def _unwrap_env_command(
+        cls, tokens: list[str], working_directory: str | None
+    ) -> tuple[list[str], str | None, str | None]:
+        """Unwrap one supported ``env`` execution prefix.
+
+        GNU/POSIX ``env`` is an executable wrapper, not evidence that later
+        argv is inert text. Parse its common options exactly so
+        ``env rm -rf /`` cannot bypass the protected-delete rule. Unsupported
+        options or dynamic chdir operands retain the remaining argv but mark
+        the result uncertain, which permits reversible HALT but never SAFE or
+        speculative KILL.
+        """
+        if not tokens or os.path.basename(tokens[0]) != "env":
+            return tokens, working_directory, None
+
+        index = 1
+        effective_cwd = working_directory
+        uncertainty: str | None = None
+        while index < len(tokens):
+            token = tokens[index]
+            if token == "--":
+                index += 1
+                break
+            if cls._is_shell_assignment_word(token):
+                name = token.partition("=")[0]
+                if name == "HOME":
+                    uncertainty = "env wrapper changes HOME for recursive-rm evaluation"
+                index += 1
+                continue
+            if token in {"-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}:
+                index += 1
+                continue
+            if token in {"-u", "--unset"}:
+                if index + 1 >= len(tokens):
+                    return [], effective_cwd, None
+                if tokens[index + 1] == "HOME":
+                    uncertainty = "env wrapper unsets HOME for recursive-rm evaluation"
+                index += 2
+                continue
+            if token.startswith("--unset="):
+                if token.partition("=")[2] == "HOME":
+                    uncertainty = "env wrapper unsets HOME for recursive-rm evaluation"
+                index += 1
+                continue
+
+            chdir_arg: str | None = None
+            if token in {"-C", "--chdir"}:
+                if index + 1 >= len(tokens):
+                    return [], effective_cwd, None
+                chdir_arg = tokens[index + 1]
+                index += 2
+            elif token.startswith("--chdir="):
+                chdir_arg = token.partition("=")[2]
+                index += 1
+            elif token.startswith("-C") and len(token) > 2:
+                chdir_arg = token[2:]
+                index += 1
+            if chdir_arg is not None:
+                if cls._rm_target_has_unresolved_expansion(chdir_arg):
+                    uncertainty = "env wrapper chdir contains unresolved expansion"
+                    continue
+                expanded = os.path.expandvars(os.path.expanduser(chdir_arg))
+                if os.path.isabs(expanded):
+                    effective_cwd = os.path.normpath(expanded)
+                elif effective_cwd is not None:
+                    effective_cwd = os.path.normpath(
+                        os.path.join(effective_cwd, expanded)
+                    )
+                else:
+                    uncertainty = "relative env wrapper chdir has no observed child cwd"
+                continue
+
+            if token in {"-S", "--split-string"} or token.startswith("--split-string="):
+                if token in {"-S", "--split-string"}:
+                    if index + 1 >= len(tokens):
+                        return [], effective_cwd, None
+                    split_text = tokens[index + 1]
+                    remaining = tokens[index + 2:]
+                else:
+                    split_text = token.partition("=")[2]
+                    remaining = tokens[index + 1:]
+                try:
+                    split_tokens = shlex.split(split_text)
+                except ValueError:
+                    split_tokens = []
+                return (
+                    split_tokens + remaining,
+                    effective_cwd,
+                    "env split-string wrapper is not reduced exactly",
+                )
+            if token.startswith("-"):
+                uncertainty = f"unsupported env wrapper option: {token}"
+                index += 1
+                continue
+            break
+
+        return tokens[index:], effective_cwd, uncertainty
+
+    @staticmethod
+    def _apply_wrapper_uncertainty(
+        decision: RecursiveRmDecision, uncertainty: str | None
+    ) -> RecursiveRmDecision:
+        """Keep uncertain wrappers reversible when recursive rm is present."""
+        if uncertainty is None or decision.state == RecursiveRmState.NONE:
+            return decision
+        return RecursiveRmDecision(
+            RecursiveRmState.UNCERTAIN,
+            target=decision.target,
+            reason=uncertainty,
+        )
+
     def _rm_rf_protected_target(
         self, command: str, working_directory: str | None = None
     ) -> str | None:
@@ -1608,6 +1750,9 @@ class Warden:
     ) -> RecursiveRmDecision:
         """Classify one argv-like simple command without executing it."""
         tokens = self._strip_shell_command_prefixes(tokens)
+        tokens, working_directory, wrapper_uncertainty = self._unwrap_env_command(
+            tokens, working_directory
+        )
         if not tokens or os.path.basename(tokens[0]) != "rm":
             return RecursiveRmDecision(RecursiveRmState.NONE)
 
@@ -1631,10 +1776,13 @@ class Warden:
             return RecursiveRmDecision(RecursiveRmState.NONE)
         for p in path_args:
             if self._is_protected_root(p, working_directory):
-                return RecursiveRmDecision(
-                    RecursiveRmState.PROTECTED,
-                    target=p,
-                    reason="recognized protected recursive-rm target",
+                return self._apply_wrapper_uncertainty(
+                    RecursiveRmDecision(
+                        RecursiveRmState.PROTECTED,
+                        target=p,
+                        reason="recognized protected recursive-rm target",
+                    ),
+                    wrapper_uncertainty,
                 )
         for p in path_args:
             if self._rm_target_has_unresolved_expansion(p):
@@ -1650,10 +1798,13 @@ class Warden:
                     target=p,
                     reason="relative recursive-rm target has no observed child cwd",
                 )
-        return RecursiveRmDecision(
-            RecursiveRmState.BENIGN,
-            target=" ".join(path_args),
-            reason="recursive-rm targets are confidently non-protected literals",
+        return self._apply_wrapper_uncertainty(
+            RecursiveRmDecision(
+                RecursiveRmState.BENIGN,
+                target=" ".join(path_args),
+                reason="recursive-rm targets are confidently non-protected literals",
+            ),
+            wrapper_uncertainty,
         )
 
     def _recursive_rm_decision(
@@ -1673,12 +1824,36 @@ class Warden:
         except ValueError:
             return RecursiveRmDecision(RecursiveRmState.NONE)
         tokens = self._strip_shell_command_prefixes(tokens)
+        tokens, working_directory, wrapper_uncertainty = self._unwrap_env_command(
+            tokens, working_directory
+        )
         if not tokens:
             return RecursiveRmDecision(RecursiveRmState.NONE)
 
         base_cmd = os.path.basename(tokens[0])
         if base_cmd not in {"bash", "dash", "ksh", "sh", "zsh"}:
-            return self._classify_rm_tokens(tokens, working_directory)
+            decision = self._classify_rm_tokens(tokens, working_directory)
+            if decision.state == RecursiveRmState.NONE and base_cmd not in {
+                "echo", "printf"
+            }:
+                # Do not guess irreversible execution semantics for arbitrary
+                # wrappers. If a later argv suffix is itself a recursive rm,
+                # pause reversibly instead of allowing wrapper PID de-duplication
+                # to turn a destructive child into SAFE/FLAG evidence only.
+                for rm_index in range(1, len(tokens)):
+                    if os.path.basename(tokens[rm_index]) != "rm":
+                        continue
+                    embedded = self._classify_rm_tokens(
+                        tokens[rm_index:], working_directory
+                    )
+                    if embedded.state != RecursiveRmState.NONE:
+                        decision = RecursiveRmDecision(
+                            RecursiveRmState.UNCERTAIN,
+                            target=embedded.target,
+                            reason="execution wrapper obscures recursive-rm semantics",
+                        )
+                        break
+            return self._apply_wrapper_uncertainty(decision, wrapper_uncertainty)
 
         payload = ""
         for index, token in enumerate(tokens[1:], start=1):
@@ -1695,7 +1870,9 @@ class Warden:
         for segment in self._shell_command_segments(payload):
             direct = self._classify_rm_tokens(segment, working_directory)
             if direct.state == RecursiveRmState.PROTECTED:
-                return direct
+                return self._apply_wrapper_uncertainty(
+                    direct, wrapper_uncertainty
+                )
             if direct.state == RecursiveRmState.UNCERTAIN:
                 uncertain = direct
             elif direct.state == RecursiveRmState.BENIGN:
@@ -1727,11 +1904,16 @@ class Warden:
                     saw_benign = True
 
         if uncertain is not None:
-            return uncertain
+            return self._apply_wrapper_uncertainty(
+                uncertain, wrapper_uncertainty
+            )
         if saw_benign:
-            return RecursiveRmDecision(
-                RecursiveRmState.BENIGN,
-                reason="compound shell recursive-rm targets are confidently benign",
+            return self._apply_wrapper_uncertainty(
+                RecursiveRmDecision(
+                    RecursiveRmState.BENIGN,
+                    reason="compound shell recursive-rm targets are confidently benign",
+                ),
+                wrapper_uncertainty,
             )
         return RecursiveRmDecision(RecursiveRmState.NONE)
 

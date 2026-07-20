@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   launched from the user's home now resolves to the protected credential directory; if child-cwd
   observation is unavailable, the Warden HALTs instead of guessing SAFE. Known project cwd cleanup
   such as `build/` and `.venv` remains benign.
+- **Recursive-delete wrapper and glob bypasses are closed** — supported `env` execution wrappers,
+  including `env -C`, are reduced before classification; root/home ancestors and first-level glob
+  forms such as `/**`, `/.*`, `~/**`, `$HOME*`, and `~/..` no longer classify SAFE. Unsupported
+  wrapper semantics HALT reversibly, while literal project-scoped glob cleanup remains benign.
 - **Shipped generic scope enforced nothing** — `examples/scope.generic.yaml` used a flat schema the parser silently read as empty allowlists; rewritten nested, and `Scope` now fails loud on legacy flat-schema keys.
 
 ### Added

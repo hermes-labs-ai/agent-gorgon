@@ -25,6 +25,8 @@ Before production use:
   process-tree changes and OS permissions can produce partial or failed controls.
 - Relative recursive-delete operands are evaluated against the observed child cwd. If cwd capture
   is unavailable, Agent Warden HALTs rather than classifying the delete SAFE.
+  Supported `env` wrappers and root/home glob or ancestor forms are reduced before classification;
+  unsupported wrapper semantics also HALT rather than acquiring irreversible KILL authority.
 - Use `--no-llm` if action/scope data must not be sent to a localhost Ollama service.
 - Prefer `--agent-pid` over process-name matching.
 - Keep scope allowlists narrow and explicit.

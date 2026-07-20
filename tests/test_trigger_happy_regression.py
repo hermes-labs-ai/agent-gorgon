@@ -163,6 +163,76 @@ def test_shell_wrapped_rm_rf_protected_roots_kill():
         assert v.verdict == Verdict.KILL, cmd
 
 
+def test_env_wrapped_protected_recursive_delete_cannot_bypass_kill():
+    """An executable env wrapper must expose the command it launches."""
+    w = _warden()
+    w.judge.available = False
+    for cmd in (
+        "env rm -rf /",
+        "env -- rm -rf /",
+        "env FOO=bar rm -rf /",
+        "env sh -c 'rm -rf /'",
+        "sh -c 'env rm -rf /'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.KILL, cmd
+
+
+def test_env_chdir_preserves_relative_delete_safety_and_project_cleanup(
+    monkeypatch, tmp_path
+):
+    """env -C changes the effective cwd without making project cleanup fatal."""
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    (home / ".ssh").mkdir(parents=True)
+    project.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    w = _cred_warden()
+    w.scope.allowed_commands.extend(["env", "sh"])
+    w.judge.available = False
+
+    protected = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target=f"env -C {home} sh -c 'rm -rf .ssh'",
+        details={"cwd": str(project)},
+    )
+    benign = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target=f"env --chdir={project} sh -c 'rm -rf build .venv'",
+        details={"cwd": str(home)},
+    )
+
+    assert asyncio.run(w.evaluate_action(protected)).verdict == Verdict.KILL
+    assert asyncio.run(w.evaluate_action(benign)).verdict == Verdict.SAFE
+
+
+def test_uncertain_env_wrapper_halts_recursive_delete_reversibly():
+    """Unsupported env option semantics cannot turn recursive rm SAFE or KILL."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["env"])
+    w.judge.available = False
+    verdict = asyncio.run(w.evaluate_action(_exec("env --unknown rm -rf /")))
+    assert verdict.verdict == Verdict.HALT
+    assert "unsupported env wrapper option" in verdict.reason.lower()
+
+    split_verdict = asyncio.run(w.evaluate_action(_exec("env -S 'rm -rf /'")))
+    assert split_verdict.verdict == Verdict.HALT
+    assert "split-string" in split_verdict.reason.lower()
+
+
+def test_unknown_execution_wrapper_with_recursive_rm_halts_not_flags():
+    """A wrapper observed before exec cannot suppress all process control."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["nice", "nohup"])
+    w.judge.available = False
+    for cmd in ("nice rm -rf /", "nohup rm -rf build"):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "execution wrapper" in verdict.reason.lower(), cmd
+
+
 def test_shell_wrapped_home_parameter_and_dot_glob_kill():
     """Shell-expanded home-root forms cannot bypass the protected-root rule."""
     w = _warden()
@@ -336,6 +406,57 @@ def test_rm_rf_home_kills():
     for cmd in ("rm -rf ~", "rm -rf $HOME", "rm -rf ~/"):
         v = asyncio.run(w.evaluate_action(_exec(cmd)))
         assert v.verdict == Verdict.KILL, cmd
+
+
+def test_recursive_delete_root_and_home_glob_variants_kill(monkeypatch, tmp_path):
+    """Root/home ancestors and first-level globs cannot classify benign."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    w = _warden()
+    w.scope.forbidden_paths = []
+    w.scope.allowed_commands.extend(["rm", "sh"])
+    w.judge.available = False
+
+    for cmd in (
+        "rm -rf /**",
+        "rm -rf /.*",
+        "rm -rf ~/**",
+        "rm -rf $HOME*",
+        "rm -rf ~/..",
+        "sh -c 'rm -rf /**'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.KILL, cmd
+
+
+def test_root_home_glob_protection_preserves_project_countercontrols(
+    monkeypatch, tmp_path
+):
+    """A literal project component before the wildcard remains benign."""
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    w = _warden()
+    w.scope.forbidden_paths = []
+    w.scope.allowed_commands.extend(["rm", "sh"])
+    w.judge.available = False
+
+    cases = (
+        ("rm -rf ~/project/*", str(home)),
+        (f"rm -rf {project}/*", str(home)),
+        ("sh -c 'rm -rf build/* .venv/*'", str(project)),
+        ("rm -rf *", str(project)),
+    )
+    for cmd, cwd in cases:
+        action = AgentAction(
+            timestamp=_now_iso(),
+            action_type=ActionType.PROCESS_EXEC,
+            target=cmd,
+            details={"cwd": cwd},
+        )
+        assert asyncio.run(w.evaluate_action(action)).verdict == Verdict.SAFE, cmd
 
 
 def test_rm_rf_forbidden_scope_path_kills():
