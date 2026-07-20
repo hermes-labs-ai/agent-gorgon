@@ -2432,7 +2432,16 @@ class Warden:
         saw_benign = False
         shell_assignments: dict[str, str] = {}
         uncertain: RecursiveRmDecision | None = None
-        for segment in self._shell_command_segments(payload):
+        expansion_marker = self._SHELL_UNQUOTED_EXPANSION_MARKER
+        for marked_segment in self._shell_command_segments(payload):
+            marked_normalized = self._strip_shell_command_prefixes(marked_segment)
+            command_word_expands_unquoted = bool(
+                marked_normalized and expansion_marker in marked_normalized[0]
+            )
+            segment = [
+                token.replace(expansion_marker, "")
+                for token in marked_segment
+            ]
             leading_assignments: dict[str, str] = {}
             for token in segment:
                 if not self._is_shell_assignment_word(token):
@@ -2542,6 +2551,38 @@ class Warden:
                     saw_benign = True
                 continue
 
+            variable_command = re.fullmatch(
+                r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|"
+                r"([A-Za-z_][A-Za-z0-9_]*))",
+                normalized[0],
+            )
+            if command_word_expands_unquoted and variable_command is not None:
+                variable_name = variable_command.group(1) or variable_command.group(2)
+                assigned_command = shell_assignments.get(variable_name)
+                if assigned_command is not None:
+                    # Unquoted expansion performs field splitting, but quote
+                    # bytes produced by the value are not parsed a second time.
+                    expanded_tokens = assigned_command.split() + normalized[1:]
+                    expanded = self._classify_rm_tokens(
+                        expanded_tokens, working_directory
+                    )
+                    if expanded.state in {
+                        RecursiveRmState.OUT_OF_SCOPE,
+                        RecursiveRmState.PROTECTED,
+                        RecursiveRmState.UNCERTAIN,
+                    }:
+                        uncertain = RecursiveRmDecision(
+                            RecursiveRmState.UNCERTAIN,
+                            target=expanded.target,
+                            reason=(
+                                "shell command word expands an assigned "
+                                "recursive-rm command"
+                            ),
+                        )
+                    elif expanded.state == RecursiveRmState.BENIGN:
+                        saw_benign = True
+                    continue
+
             for rm_index in range(1, len(normalized)):
                 if os.path.basename(normalized[rm_index]) != "rm":
                     continue
@@ -2574,6 +2615,8 @@ class Warden:
                 wrapper_uncertainty,
             )
         return RecursiveRmDecision(RecursiveRmState.NONE)
+
+    _SHELL_UNQUOTED_EXPANSION_MARKER = "\ue000"
 
     @staticmethod
     def _strip_shell_comments(payload: str) -> str:
@@ -2640,6 +2683,37 @@ class Warden:
         return "".join(stripped)
 
     @staticmethod
+    def _mark_unquoted_shell_expansions(payload: str) -> str:
+        """Mark expansion bytes that can undergo shell field splitting."""
+        marked: list[str] = []
+        quote: str | None = None
+        escaped = False
+
+        for char in payload:
+            if escaped:
+                marked.append(char)
+                escaped = False
+                continue
+            if char == "\\":
+                marked.append(char)
+                escaped = True
+                continue
+            if quote is not None:
+                marked.append(char)
+                if char == quote:
+                    quote = None
+                continue
+            if char in {"'", '"'}:
+                marked.append(char)
+                quote = char
+                continue
+            if char == "$":
+                marked.append(Warden._SHELL_UNQUOTED_EXPANSION_MARKER)
+            marked.append(char)
+
+        return "".join(marked)
+
+    @staticmethod
     def _shell_command_segments(payload: str) -> list[list[str]]:
         """Tokenize simple shell compounds without confusing quoted operators.
 
@@ -2649,7 +2723,9 @@ class Warden:
         normal argument byte. The resulting argv-like segments are inspected,
         never executed.
         """
-        payload = Warden._strip_shell_comments(payload)
+        payload = Warden._mark_unquoted_shell_expansions(
+            Warden._strip_shell_comments(payload)
+        )
         try:
             lexer = shlex.shlex(
                 payload, posix=True, punctuation_chars=";&|()\n"

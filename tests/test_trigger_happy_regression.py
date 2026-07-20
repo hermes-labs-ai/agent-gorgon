@@ -625,6 +625,43 @@ def test_assignment_prefixed_eval_cannot_hide_recursive_delete():
     assert asyncio.run(w.evaluate_action(inert)).verdict == Verdict.SAFE
 
 
+def test_assigned_variable_command_word_cannot_hide_recursive_delete():
+    """A known unquoted command expansion cannot turn recursive rm into SAFE."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+
+    def shell_action(payload: str) -> AgentAction:
+        return AgentAction(
+            timestamp=_now_iso(),
+            action_type=ActionType.PROCESS_EXEC,
+            target="sh -c payload",
+            details={"cwd": os.getcwd(), "argv": ["sh", "-c", payload]},
+        )
+
+    protected = shell_action(
+        'CMD="rm -rf /tmp/secret/token.txt"; $CMD'
+    )
+    decision = w._recursive_rm_decision(
+        protected.target,
+        protected.details["cwd"],
+        observed_argv=protected.details["argv"],
+    )
+    verdict = asyncio.run(w.evaluate_action(protected))
+
+    assert decision.state.value == "uncertain"
+    assert verdict.verdict == Verdict.HALT
+    assert "assigned recursive-rm" in verdict.reason.lower()
+
+    benign = shell_action('CMD="rm -rf build"; $CMD')
+    assert asyncio.run(w.evaluate_action(benign)).verdict == Verdict.SAFE
+
+    # Quotes suppress field splitting, so this attempts one executable whose
+    # name contains spaces; it does not execute rm with recursive operands.
+    quoted = shell_action('CMD="rm -rf /tmp/secret/token.txt"; "$CMD"')
+    assert asyncio.run(w.evaluate_action(quoted)).verdict == Verdict.SAFE
+
+
 def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
     """An unresolved target cannot silently acquire either SAFE or KILL."""
     w = _warden()
