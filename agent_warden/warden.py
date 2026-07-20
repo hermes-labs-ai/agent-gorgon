@@ -1336,10 +1336,67 @@ class Warden:
 
         return matches(0, 0)
 
+    @staticmethod
+    def _glob_patterns_may_cover(first: str, second: str) -> bool:
+        """Conservatively test whether two path patterns can overlap by prefix.
+
+        This is intentionally symbolic: it never walks the filesystem. A True
+        result means overlap is possible, not proven, and therefore carries
+        reversible HALT authority only unless an exact check proves protection.
+        """
+        first = os.path.normpath(first)
+        second = os.path.normpath(second)
+        if os.path.isabs(first) != os.path.isabs(second):
+            return False
+        first_parts = tuple(part for part in first.split(os.sep) if part)
+        second_parts = tuple(part for part in second.split(os.sep) if part)
+        for left, right in zip(first_parts, second_parts):
+            if left == "**" or right == "**":
+                return True
+            left_magic = glob.has_magic(left)
+            right_magic = glob.has_magic(right)
+            if not left_magic and not right_magic:
+                if left != right:
+                    return False
+            elif left_magic and not right_magic:
+                if not fnmatch.fnmatchcase(right, left):
+                    return False
+            elif right_magic and not left_magic:
+                if not fnmatch.fnmatchcase(left, right):
+                    return False
+            # Two wildcard segments need a full glob-language intersection
+            # solver to disprove overlap, so retain reversible uncertainty.
+        return True
+
+    @staticmethod
+    def _literal_prefix_remainder(
+        literal: str, pattern: str
+    ) -> tuple[bool, tuple[str, ...] | None]:
+        """Match a literal path prefix to a glob without filesystem expansion.
+
+        The remainder is returned only when the match is unambiguous. ``None``
+        means ``**`` made the suffix position ambiguous.
+        """
+        literal = os.path.normpath(literal)
+        pattern = os.path.normpath(pattern)
+        if os.path.isabs(literal) != os.path.isabs(pattern):
+            return False, ()
+        literal_parts = tuple(part for part in literal.split(os.sep) if part)
+        pattern_parts = tuple(part for part in pattern.split(os.sep) if part)
+        if len(literal_parts) > len(pattern_parts):
+            return False, ()
+        for index, part in enumerate(literal_parts):
+            pattern_part = pattern_parts[index]
+            if pattern_part == "**":
+                return True, None
+            if not fnmatch.fnmatchcase(part, pattern_part):
+                return False, ()
+        return True, pattern_parts[len(literal_parts):]
+
     @classmethod
     def _delete_target_intersects_forbidden(
         cls, target: str, protected_pattern: str
-    ) -> bool:
+    ) -> bool | None:
         """Whether recursive deletion of ``target`` intersects a forbidden root.
 
         Shell operand globs and scope globs describe path sets, not literal
@@ -1370,46 +1427,67 @@ class Warden:
             if cls._glob_path_matches(target, protected_pattern):
                 return True
 
-        target_matches = (
-            [target]
-            if not target_has_magic
-            else [os.path.normpath(match) for match in glob.iglob(target, recursive=True)]
+        # Literal paths can be compared exactly without filesystem work.
+        if not target_has_magic and not protected_has_magic:
+            return cls._path_covers(target, protected_pattern) or cls._path_covers(
+                protected_pattern, target
+            )
+
+        # A target glob that names a protected literal, one of its ancestors,
+        # or descendants below it is deterministically protected.
+        if target_has_magic and not protected_has_magic:
+            if any(
+                cls._glob_path_matches(target, ancestor)
+                for ancestor in cls._path_ancestors(protected_pattern)
+            ):
+                return True
+            literal_prefix = target
+            while glob.has_magic(literal_prefix):
+                parent = os.path.dirname(literal_prefix)
+                if parent == literal_prefix:
+                    break
+                literal_prefix = parent
+            if not glob.has_magic(literal_prefix) and cls._path_covers(
+                protected_pattern, literal_prefix
+            ):
+                return True
+            return (
+                None
+                if cls._glob_patterns_may_cover(target, protected_pattern)
+                else False
+            )
+
+        # A literal ancestor of an internal forbidden glob is a proven match
+        # only when its remaining literal suffix exists. A wildcard or ``**``
+        # remainder is not enumerated: it becomes reversible uncertainty.
+        if not target_has_magic and protected_has_magic:
+            compatible, remainder = cls._literal_prefix_remainder(
+                target, protected_pattern
+            )
+            if not compatible:
+                return False
+            if remainder is None or any(glob.has_magic(part) for part in remainder):
+                return None
+            candidate = os.path.join(target, *remainder)
+            return os.path.lexists(candidate)
+
+        # Two glob languages can often be proven to overlap without expanding
+        # either one. Ambiguous-but-possible intersections HALT reversibly.
+        if target == protected_pattern:
+            return True
+        if cls._glob_path_matches(target, protected_pattern) or cls._glob_path_matches(
+            protected_pattern, target
+        ):
+            return True
+        return (
+            None
+            if cls._glob_patterns_may_cover(target, protected_pattern)
+            else False
         )
-        protected_matches = (
-            [protected_pattern]
-            if not protected_has_magic
-            else [
-                os.path.normpath(match)
-                for match in glob.iglob(protected_pattern, recursive=True)
-            ]
-        )
-
-        # Compare the concrete sets that the shell and the forbidden pattern
-        # resolve to.  Covering either a protected path or one of its ancestors
-        # deletes protected material.
-        for concrete_target in target_matches:
-            for concrete_protected in protected_matches:
-                if cls._path_covers(concrete_target, concrete_protected):
-                    return True
-                if cls._path_covers(concrete_protected, concrete_target):
-                    return True
-
-        # A target glob can match an ancestor of a protected materialization
-        # without matching the protected leaf text itself (e.g. /tmp/* deleting
-        # /tmp/job, which contains /tmp/job/secret).
-        if target_has_magic:
-            for concrete_protected in protected_matches:
-                if any(
-                    cls._glob_path_matches(target, ancestor)
-                    for ancestor in cls._path_ancestors(concrete_protected)
-                ):
-                    return True
-
-        return False
 
     def _is_protected_root(
         self, path: str, working_directory: str | None = None
-    ) -> bool:
+    ) -> bool | None:
         """A recursive delete of this path is catastrophic and non-recoverable:
         filesystem root, the user's home directory, or a scope forbidden_path
         (its contents, the dir itself, OR an ancestor that contains it — deleting
@@ -1517,6 +1595,7 @@ class Warden:
         targets = {normed}
         if not os.path.isabs(normed) and working_directory is not None:
             targets.add(os.path.normpath(os.path.join(working_directory, normed)))
+        uncertain_intersection = False
         for pat in self.scope.forbidden_paths:
             root = self._forbidden_path_root(pat)
             if not root or root == os.sep:
@@ -1528,11 +1607,14 @@ class Warden:
                 )
             for tgt in targets:
                 for protected_pattern in protected_patterns:
-                    if self._delete_target_intersects_forbidden(
+                    intersection = self._delete_target_intersects_forbidden(
                         tgt, protected_pattern
-                    ):
+                    )
+                    if intersection is True:
                         return True
-        return False
+                    if intersection is None:
+                        uncertain_intersection = True
+        return None if uncertain_intersection else False
 
     @staticmethod
     def _is_shell_assignment_word(token: str) -> bool:
@@ -1753,19 +1835,49 @@ class Warden:
         tokens, working_directory, wrapper_uncertainty = self._unwrap_env_command(
             tokens, working_directory
         )
-        if not tokens or os.path.basename(tokens[0]) != "rm":
+        if not tokens:
+            return RecursiveRmDecision(RecursiveRmState.NONE)
+
+        command_word = tokens[0]
+        command_stem = os.path.basename(command_word.rstrip(os.sep))
+        command_unresolved = self._rm_target_has_unresolved_expansion(command_word)
+        recursive_hint = any(
+            token.startswith("-")
+            and token != "--"
+            and (
+                token == "--recursive"
+                or (not token.startswith("--") and ("r" in token[1:] or "R" in token[1:]))
+            )
+            for token in tokens[1:]
+        )
+        if os.path.basename(command_word) != "rm":
+            if command_unresolved and (
+                command_stem.startswith("rm") or recursive_hint
+            ):
+                return RecursiveRmDecision(
+                    RecursiveRmState.UNCERTAIN,
+                    target=command_word,
+                    reason="recursive-rm command word contains unresolved shell expansion",
+                )
             return RecursiveRmDecision(RecursiveRmState.NONE)
 
         recursive = False
         path_args: list[str] = []
+        unresolved_option: str | None = None
+        options_ended = False
         for tok in tokens[1:]:
-            if tok == "--":
+            if not options_ended and tok == "--":
+                options_ended = True
                 continue
-            if tok.startswith("--"):
+            if not options_ended and tok.startswith("--"):
+                if self._rm_target_has_unresolved_expansion(tok):
+                    unresolved_option = tok
                 if tok == "--recursive":
                     recursive = True
                 continue
-            if tok.startswith("-") and len(tok) > 1:
+            if not options_ended and tok.startswith("-") and len(tok) > 1:
+                if self._rm_target_has_unresolved_expansion(tok):
+                    unresolved_option = tok
                 # short-flag cluster, e.g. -rf / -fr / -Rf / -r
                 if "r" in tok[1:] or "R" in tok[1:]:
                     recursive = True
@@ -1774,8 +1886,16 @@ class Warden:
 
         if not recursive:
             return RecursiveRmDecision(RecursiveRmState.NONE)
+        if unresolved_option is not None:
+            return RecursiveRmDecision(
+                RecursiveRmState.UNCERTAIN,
+                target=unresolved_option,
+                reason="recursive-rm option contains unresolved shell expansion",
+            )
+        uncertain_protection: str | None = None
         for p in path_args:
-            if self._is_protected_root(p, working_directory):
+            protection = self._is_protected_root(p, working_directory)
+            if protection is True:
                 return self._apply_wrapper_uncertainty(
                     RecursiveRmDecision(
                         RecursiveRmState.PROTECTED,
@@ -1784,6 +1904,14 @@ class Warden:
                     ),
                     wrapper_uncertainty,
                 )
+            if protection is None:
+                uncertain_protection = p
+        if uncertain_protection is not None:
+            return RecursiveRmDecision(
+                RecursiveRmState.UNCERTAIN,
+                target=uncertain_protection,
+                reason="recursive-rm target may intersect a configured forbidden glob",
+            )
         for p in path_args:
             if self._rm_target_has_unresolved_expansion(p):
                 return RecursiveRmDecision(

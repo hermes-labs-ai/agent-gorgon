@@ -332,6 +332,21 @@ def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
     assert "unresolved shell expansion" in verdict.reason.lower()
 
 
+def test_shell_expansion_in_rm_command_or_option_halts_reversibly():
+    """IFS expansion cannot hide root as a token produced after observation."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf$IFS/'",
+        "sh -c 'rm$IFS-rf$IFS/'",
+        "sh -c '$CMD -rf /'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "unresolved shell expansion" in verdict.reason.lower(), cmd
+
+
 def test_quoted_shell_operator_byte_remains_part_of_path():
     """A quoted semicolon is data, not a command separator or filesystem root."""
     w = _warden()
@@ -695,3 +710,27 @@ def test_internal_forbidden_glob_intersection_table(tmp_path):
         assert matched is should_kill, cmd
         verdict = asyncio.run(w.evaluate_action(_exec(cmd))).verdict
         assert (verdict == Verdict.KILL) is should_kill, cmd
+
+
+def test_recursive_rm_glob_intersection_never_expands_filesystem(
+    monkeypatch, tmp_path
+):
+    """Process-event classification is symbolic and cannot start a glob walk."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.scope.forbidden_paths = [str(tmp_path / "*" / "secret" / "**")]
+    w.judge.available = False
+
+    def fail_iglob(*_args, **_kwargs):
+        raise AssertionError("process recursive-rm classifier called glob.iglob")
+
+    monkeypatch.setattr(warden_module.glob, "iglob", fail_iglob)
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target=f"sh -c 'rm -rf {tmp_path}/**/build'",
+        details={"cwd": str(tmp_path)},
+    )
+
+    verdict = asyncio.run(w.evaluate_action(action))
+    assert verdict.verdict in {Verdict.SAFE, Verdict.HALT}
