@@ -155,6 +155,30 @@ def test_rm_rf_project_dirs_do_not_kill():
         assert v.verdict != Verdict.KILL, cmd
 
 
+def test_forbidden_wrapper_kill_preempts_recursive_rm_uncertainty_halt():
+    """An explicit scope KILL must outrank the parser's reversible HALT."""
+    w = _warden()
+    w.scope.forbidden_commands = ["sudo"]
+    w.judge.available = False
+
+    verdict = asyncio.run(w.evaluate_action(_exec("sudo rm -rf /")))
+
+    assert verdict.verdict == Verdict.KILL
+    assert verdict.reason == "Forbidden command: sudo rm -rf /"
+
+
+def test_unconfigured_wrapper_recursive_rm_uncertainty_still_halts():
+    """The precedence rule must not promote unknown wrappers or weaken HALT."""
+    w = _warden()
+    w.scope.forbidden_commands = []
+    w.judge.available = False
+
+    verdict = asyncio.run(w.evaluate_action(_exec("sudo rm -rf /")))
+
+    assert verdict.verdict == Verdict.HALT
+    assert "uncertain compound shell recursive rm" in verdict.reason.lower()
+
+
 def test_allowed_shell_halts_out_of_scope_recursive_delete(
     monkeypatch, tmp_path
 ):

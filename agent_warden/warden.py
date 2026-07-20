@@ -2825,6 +2825,26 @@ class Warden:
 
         kill_verdict = self._check_hardcoded_kill(action)
         if kill_verdict is not None:
+            # A scope-level process KILL is definitive and must not be weakened
+            # to a reversible HALT when a wrapper makes recursive-rm parsing
+            # uncertain. Restrict this precedence rule to hardcoded HALTs so
+            # unrelated behavioral HALT contracts (for example curl/wget)
+            # remain unchanged; configured SAFE/FLAG never bypasses protection.
+            if (
+                kill_verdict.verdict == Verdict.HALT
+                and action.action_type
+                in (ActionType.PROCESS_EXEC, ActionType.PROCESS_SPAWN)
+            ):
+                configured_verdict, configured_reason = self.scope.check_command(
+                    action.target
+                )
+                if configured_verdict == Verdict.KILL:
+                    return WardenVerdict(
+                        verdict=configured_verdict,
+                        reason=configured_reason,
+                        action=action,
+                        evaluator="rule_engine",
+                    )
             return kill_verdict
 
         # Behavioral HALT checks apply only to process-attributed observations.
