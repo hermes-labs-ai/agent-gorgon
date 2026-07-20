@@ -30,6 +30,7 @@ import sys
 import time
 import shlex
 import fnmatch
+import ipaddress
 import logging
 import argparse
 from collections.abc import Iterable
@@ -222,7 +223,7 @@ class Scope:
         domain = domain.lower().strip()
 
         # Localhost is always safe (IPC, Ollama, etc.)
-        if domain in ("127.0.0.1", "::1", "localhost"):
+        if self._is_loopback_destination(domain):
             return Verdict.SAFE, f"Localhost connection: {domain}:{port}"
 
         # The process observer reports remote IPs, not authenticated hostnames.
@@ -244,6 +245,21 @@ class Scope:
                     return Verdict.FLAG, f"Allowed domain but unusual port: {resolved}:{port}"
 
         return Verdict.FLAG, f"Connection to unknown host: {resolved} ({domain}):{port}"
+
+    @staticmethod
+    def _is_loopback_destination(domain: str) -> bool:
+        """Recognize hostname, IPv4, IPv6, and IPv4-mapped loopback forms."""
+        normalized = domain.lower().strip().strip("[]")
+        if normalized == "localhost":
+            return True
+        try:
+            address = ipaddress.ip_address(normalized)
+        except ValueError:
+            return False
+        if address.is_loopback:
+            return True
+        mapped = getattr(address, "ipv4_mapped", None)
+        return mapped is not None and mapped.is_loopback
     
     def check_command(self, command: str) -> tuple:
         parts = command.strip().split()
@@ -768,6 +784,7 @@ class ProcessObserver:
         self.agent_pid = agent_pid
         self._known_files: set[tuple[int, str, str]] = set()
         self._known_connections: set[tuple[int, str, int]] = set()
+        self._active_connections: set[tuple[int, str, int]] = set()
         self._known_children: set[int] = set()
 
         # ── Filesystem-diff state ──────────────────────────────────────────
@@ -1004,6 +1021,8 @@ class ProcessObserver:
     def observe(self) -> list[AgentAction]:
         """Poll agent activity and return NEW actions since last check."""
         actions: list[AgentAction] = []
+        active_connections: set[tuple[int, str, int]] = set()
+        self._active_connections = set()
         now = datetime.now(timezone.utc).isoformat()
         
         try:
@@ -1046,6 +1065,7 @@ class ProcessObserver:
                     for conn in proc.net_connections():
                         if conn.status == 'ESTABLISHED' and conn.raddr:
                             conn_key = (pid, conn.raddr.ip, conn.raddr.port)
+                            active_connections.add(conn_key)
                             if conn_key not in self._known_connections:
                                 self._known_connections.add(conn_key)
                                 actions.append(AgentAction(
@@ -1102,6 +1122,10 @@ class ProcessObserver:
                     
             except psutil.NoSuchProcess:
                 continue
+
+        # Current-poll truth is distinct from _known_connections, which exists
+        # only to suppress duplicate NETWORK_OUT observations across polls.
+        self._active_connections = active_connections
 
         # ── Filesystem diff ──
         # Recovers in-process create/delete events that psutil.open_files() cannot
@@ -2307,6 +2331,21 @@ class Warden:
 
         if self._is_credential_read_action(action):
             self.credential_reads.setdefault(action.source_pid, []).append(now)
+            active_connections: set[tuple[int, str, int]] = getattr(
+                self.observer, "_active_connections", set()
+            )
+            for _pid, remote, port in sorted(active_connections):
+                if self.scope._is_loopback_destination(remote):
+                    continue
+                return WardenVerdict(
+                    verdict=Verdict.KILL,
+                    reason=(
+                        "Credential-exfil signature: credential read while "
+                        f"active network egress exists to {remote}:{port}"
+                    ),
+                    action=action,
+                    evaluator="rule_engine",
+                )
             return None
 
         if action.action_type == ActionType.NETWORK_OUT and self.credential_reads:
@@ -2318,10 +2357,9 @@ class Warden:
                     remote_value = action.target.rsplit(":", 1)[0]
             remote = str(remote_value)
             port = action.details.get("remote_port", 443)
-            _network_verdict, network_reason = self.scope.check_network(remote, port)
             # Localhost is IPC, not egress. Keep the credential-read window
             # armed so a later non-local connection is still caught.
-            if network_reason.startswith("Localhost connection:"):
+            if self.scope._is_loopback_destination(remote):
                 return None
             last_read = max(
                 t for reads in self.credential_reads.values() for t in reads

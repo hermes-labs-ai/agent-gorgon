@@ -29,9 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the visible process state before suppressing a signal, and failed one-shot attempts retry without
   duplicating the episode report. Previously HALT only logged and the agent kept running.
 - **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
-- **Credential-read then non-local network-out exfil pattern KILLs deterministically**; a bare
-  network-out without a preceding credential read stays HALT/FLAG, and localhost IPC stays SAFE
-  without disarming a later external-egress correlation.
+- **Credential-read plus non-local network egress KILLs deterministically** when an external socket
+  is active at read time or a new external connection appears inside the correlation window. A bare
+  network-out stays HALT/FLAG, and the complete IP loopback ranges stay SAFE without disarming a
+  later external-egress correlation.
 - **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic
   FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind
   to them). Literal symlink roots such as macOS `/tmp` are opened through a pinned concrete target

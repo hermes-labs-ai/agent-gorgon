@@ -747,6 +747,48 @@ def test_observer_marks_child_cwd_unavailable(monkeypatch):
     assert actions[0].details == {"child_pid": 2468, "cwd_unavailable": True}
 
 
+def test_observer_refreshes_current_established_connections(monkeypatch):
+    """Active socket state is current-poll truth, not the de-duplication history."""
+
+    class Address:
+        def __init__(self, ip, port):
+            self.ip = ip
+            self.port = port
+
+    class Connection:
+        status = warden_module.psutil.CONN_ESTABLISHED
+        raddr = Address("8.8.8.8", 443)
+        laddr = Address("127.0.0.1", 50000)
+
+    class FakeParent:
+        connections = [Connection()]
+
+        @staticmethod
+        def open_files():
+            return []
+
+        @classmethod
+        def net_connections(cls):
+            return cls.connections
+
+        @staticmethod
+        def children():
+            return []
+
+    observer = ProcessObserver(agent_pid=1357)
+    monkeypatch.setattr(observer, "get_agent_pids", lambda: [1357])
+    monkeypatch.setattr(warden_module.psutil, "Process", lambda _pid: FakeParent())
+
+    first = observer.observe()
+    assert observer._active_connections == {(1357, "8.8.8.8", 443)}
+    assert [action.action_type for action in first] == [ActionType.NETWORK_OUT]
+
+    FakeParent.connections = []
+    second = observer.observe()
+    assert observer._active_connections == set()
+    assert second == []
+
+
 def test_relative_credential_delete_resolves_against_child_cwd(monkeypatch, tmp_path):
     """Exact blocker: HOME child + `rm -rf .ssh` must never classify SAFE."""
     home = tmp_path / "home"

@@ -486,6 +486,57 @@ def test_credential_read_then_localhost_ipc_stays_safe_but_window_remains_armed(
     assert asyncio.run(w.evaluate_action(ipv6)).verdict == Verdict.SAFE
 
 
+def test_active_external_connection_then_credential_read_kills():
+    """An already-established egress socket cannot bypass read correlation."""
+    w = _warden()
+    w.judge.available = False
+    w.observer._active_connections = {(2000, "8.8.8.8", 443)}
+
+    verdict = asyncio.run(
+        w.evaluate_action(_read("/tmp/safe/app.credentials", pid=1000))
+    )
+
+    assert verdict.verdict == Verdict.KILL
+    assert "active network egress" in verdict.reason.lower()
+
+
+def test_stale_or_loopback_connection_does_not_kill_credential_read():
+    """Historical sockets and local IPC do not turn a credential read fatal."""
+    w = _warden()
+    w.judge.available = False
+    w.observer._known_connections = {(2000, "8.8.8.8", 443)}
+    w.observer._active_connections = {
+        (2000, "127.0.0.2", 8080),
+        (2001, "::ffff:127.0.0.3", 8081),
+    }
+
+    verdict = asyncio.run(
+        w.evaluate_action(_read("/tmp/safe/app.credentials", pid=1000))
+    )
+
+    assert verdict.verdict != Verdict.KILL
+
+
+def test_credential_read_then_loopback_aliases_stay_safe_and_armed():
+    """The complete IP loopback ranges are IPC, not external egress."""
+    for remote in ("127.0.0.2", "127.255.255.254", "::ffff:127.0.0.3"):
+        w = _warden()
+        w.judge.available = False
+        asyncio.run(w.evaluate_action(_read("/tmp/safe/app.credentials", pid=1000)))
+        local = AgentAction(
+            timestamp=_now_iso(),
+            action_type=ActionType.NETWORK_OUT,
+            target=f"[{remote}]:8080" if ":" in remote else f"{remote}:8080",
+            details={"remote_ip": remote, "remote_port": 8080},
+            source_pid=2000,
+        )
+
+        assert asyncio.run(w.evaluate_action(local)).verdict == Verdict.SAFE
+        assert asyncio.run(
+            w.evaluate_action(_netout("8.8.8.8:443", pid=2000))
+        ).verdict == Verdict.KILL
+
+
 def test_credential_read_write_handle_then_netout_kills():
     """A '+' file mode permits reading even though the observer preserves the
     stronger FILE_WRITE classification for the same handle."""
