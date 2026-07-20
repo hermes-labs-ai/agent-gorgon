@@ -1156,9 +1156,15 @@ class Warden:
         # Persist its verdict so the next poll retries enforcement without
         # requiring the underlying event to be emitted again.
         self.pending_kill: WardenVerdict | None = None
+        self._kill_episode_report_path: str | None = None
+        self._kill_episode_rollback: dict | None = None
+        self._kill_episode_attempts: list[dict] = []
         # HALT gives a *reversible* pause (SIGSTOP). Signal the tree ONCE, then
-        # only log on later HALTs — no per-poll signal spam.
+        # reconcile the real process state before suppressing a later signal.
         self.suspended = False
+        self.pending_halt: WardenVerdict | None = None
+        self._halt_episode_report_path: str | None = None
+        self._halt_episode_attempts: list[dict] = []
         # ADVISORY LLM state. The judge runs OFF the enforcement hot path
         # (fire-and-forget), so a slow/hanging model can never open a blind
         # window on the monitor. Its output only lands here (posture + forensics)
@@ -2493,17 +2499,46 @@ class Warden:
                 f"🔎 Advisory (raise posture, non-enforcing): {advisory.reason}"
             )
     
-    async def execute_halt(self, verdict: WardenVerdict):
+    def _agent_tree_is_suspended(self) -> bool:
+        """Return true only when every visible live process in the tree is stopped."""
+        try:
+            root = psutil.Process(self.agent_pid)
+            processes = [root, *root.children(recursive=True)]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
+
+        visible = False
+        for process in processes:
+            try:
+                if not process.is_running():
+                    continue
+                visible = True
+                if process.status() != psutil.STATUS_STOPPED:
+                    return False
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                return False
+        return visible
+
+    async def execute_halt(self, verdict: WardenVerdict, *, retry: bool = False):
         """Give a HALT verdict teeth: SIGSTOP the agent tree — a *reversible*
-        pause — then log + write the forensic halt report. Idempotent: the tree
-        is signalled ONCE (guarded by self.suspended); later HALTs only log, so
-        we never re-signal every poll. The warden keeps monitoring afterwards so
-        it can still escalate to KILL (e.g. exfil) while the agent is held."""
+        pause — then log + write one forensic report per HALT episode. A later
+        HALT reconciles the visible process tree before treating the prior pause
+        as still active. Failed one-shot attempts remain pending for run-loop
+        retry without duplicating their report."""
+        if not retry:
+            self._halt_episode_report_path = None
+            self._halt_episode_attempts = []
+
         if self.suspended:
-            self.log.warning(
-                f"🟡 HALT (agent already suspended, no re-signal): {verdict.reason}"
-            )
-            return
+            self.suspended = self._agent_tree_is_suspended()
+            if self.suspended:
+                self.pending_halt = None
+                self.log.warning(
+                    f"🟡 HALT (agent tree still suspended, no re-signal): "
+                    f"{verdict.reason}"
+                )
+                return
+            self.log.warning("Prior HALT state is stale; re-attempting SIGSTOP.")
 
         self.log.warning(f"🟡 HALT: {verdict.reason}")
         self.log.warning(
@@ -2518,6 +2553,8 @@ class Warden:
             and not suspend_result.get("errors")
         )
         suspend_result["suspended"] = self.suspended
+        self.pending_halt = None if self.suspended else verdict
+        self._halt_episode_attempts.append(dict(suspend_result))
         if self.suspended:
             self.log.critical(
                 f"   ⏸️  Agent SIGSTOPed (reversible pause): "
@@ -2529,15 +2566,47 @@ class Warden:
                 f"pids={pids_suspended} errors={suspend_result['errors']}"
             )
         try:
-            report_path = self.logger.generate_halt_report(
-                verdict, self.all_verdicts, suspend_result
+            if not retry or self._halt_episode_report_path is None:
+                report_path = self.logger.generate_halt_report(
+                    verdict, self.all_verdicts, suspend_result
+                )
+                self._halt_episode_report_path = report_path
+            else:
+                report_path = self._halt_episode_report_path
+            with open(report_path, 'r') as f:
+                report = json.load(f)
+            report["halt_report"]["status"] = (
+                "AGENT_SUSPENDED" if self.suspended else "SUSPENSION_FAILED"
             )
+            report["control_action"].update({
+                "suspended": self.suspended,
+                "pids_suspended": pids_suspended,
+                "errors": suspend_result.get("errors", []),
+            })
+            report["liability_statement"][
+                "agent_process_suspended"
+            ] = self.suspended
+            report["liability_statement"]["notice"] = (
+                "The monitored agent is SUSPENDED (SIGSTOP), a reversible "
+                "pause, after the latest HALT control attempt."
+                if self.suspended
+                else "The latest SIGSTOP attempt did not suspend the monitored "
+                "agent; the HALT episode remains pending for retry."
+            )
+            report["halt_attempts"] = self._halt_episode_attempts
+            with open(report_path, 'w') as f:
+                json.dump(report, f, indent=2)
             self.log.warning(f"   📋 Halt report: {report_path}")
         except Exception as e:  # noqa: BLE001 — never crash the loop on reporting
             self.log.error(f"   Halt report failed: {e}")
 
-    async def execute_kill(self, verdict: WardenVerdict):
-        """Full kill sequence: terminate + rollback + forensic report."""
+    async def execute_kill(self, verdict: WardenVerdict, *, retry: bool = False):
+        """Attempt termination; rollback/report exactly once per kill episode."""
+        self.pending_halt = None
+        if not retry:
+            self._kill_episode_report_path = None
+            self._kill_episode_rollback = None
+            self._kill_episode_attempts = []
         
         self.log.critical(f"🔴 KILL: {verdict.reason}")
         self.log.critical(f"   Action: {verdict.action.action_type.value} -> {verdict.action.target}")
@@ -2553,24 +2622,52 @@ class Warden:
             kill_result.get("killed") and kill_result.get("pids_terminated")
         )
         self.pending_kill = None if self.killed else verdict
-        
-        rollback_result = self.killswitch.attempt_rollback(verdict.action)
-        self.log.info(f"   Rollback: {rollback_result['details']}")
-        
-        report_path = self.logger.generate_incident_report(
-            verdict, self.all_verdicts, kill_result, rollback_result
-        )
-        
-        # Update report with execution details
-        with open(report_path, 'r') as f:
-            report = json.load(f)
-        report["session_summary"]["session_duration_seconds"] = time.time() - self.start_time
-        report["liability_statement"]["rollback_details"] = rollback_result
-        report["kill_execution"] = kill_result
-        with open(report_path, 'w') as f:
-            json.dump(report, f, indent=2)
-        
-        self.log.critical(f"   📋 Report: {report_path}")
+        self._kill_episode_attempts.append(kill_result)
+
+        report_path: str | None
+        if not retry:
+            rollback_result = self.killswitch.attempt_rollback(verdict.action)
+            self._kill_episode_rollback = rollback_result
+            self.log.info(f"   Rollback: {rollback_result['details']}")
+            report_path = None
+        else:
+            rollback_result = self._kill_episode_rollback or {
+                "attempted": False,
+                "success": False,
+                "details": "No initial rollback receipt available",
+            }
+            report_path = self._kill_episode_report_path
+
+        try:
+            if report_path is None:
+                report_path = self.logger.generate_incident_report(
+                    verdict, self.all_verdicts, kill_result, rollback_result
+                )
+                self._kill_episode_report_path = str(report_path)
+
+            # Update the one episode report with the latest control outcome.
+            with open(report_path, 'r') as f:
+                report = json.load(f)
+            report["session_summary"]["session_duration_seconds"] = (
+                time.time() - self.start_time
+            )
+            report["liability_statement"]["rollback_details"] = rollback_result
+            report["kill_execution"] = kill_result
+            report["kill_attempts"] = self._kill_episode_attempts
+            report["incident_report"]["status"] = (
+                "AGENT_TERMINATED" if self.killed else "TERMINATION_FAILED"
+            )
+            report["liability_statement"][
+                "agent_process_terminated"
+            ] = self.killed
+            report["liability_statement"]["termination_method"] = (
+                "SIGKILL" if self.killed else "SIGKILL_ATTEMPTED"
+            )
+            with open(report_path, 'w') as f:
+                json.dump(report, f, indent=2)
+            self.log.critical(f"   📋 Report: {report_path}")
+        except Exception as e:  # noqa: BLE001 — enforcement retry must survive evidence I/O
+            self.log.error(f"   Incident report update failed: {e}")
 
     async def run(self):
         """Main monitoring loop."""
@@ -2599,6 +2696,8 @@ class Warden:
         while self.running:
             try:
                 if not self.observer.is_agent_alive():
+                    self.pending_kill = None
+                    self.pending_halt = None
                     self.log.info("Agent ended. Warden shutting down.")
                     break
 
@@ -2607,9 +2706,18 @@ class Warden:
                         "Retrying prior failed KILL without waiting for a new "
                         "observer event."
                     )
-                    await self.execute_kill(self.pending_kill)
+                    await self.execute_kill(self.pending_kill, retry=True)
                     if self.killed:
                         break
+                    await asyncio.sleep(self.poll_interval)
+                    continue
+
+                if self.pending_halt is not None:
+                    self.log.warning(
+                        "Retrying prior failed HALT without waiting for a new "
+                        "observer event."
+                    )
+                    await self.execute_halt(self.pending_halt, retry=True)
                 
                 # Check behavioral triggers
                 for check in (self._check_rate_limit, self._check_flag_accumulation):
@@ -2632,6 +2740,9 @@ class Warden:
                 
                 if self.killed:
                     break
+                if self.pending_kill is not None:
+                    await asyncio.sleep(self.poll_interval)
+                    continue
                 
                 # Observe and evaluate
                 actions = self._order_actions_for_enforcement(

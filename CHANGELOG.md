@@ -19,13 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prior exact-review blockers closed** — shell `-c` parsing preserves the command-string boundary,
   advisory LLM fanout is bounded to one in-flight task, and completed advisory evidence is persisted.
 - **Evidence claims are outcome-bound** — a failed SIGKILL attempt stays retryable and its report no
-  longer claims that the process terminated; report generator metadata now matches 0.1.5.
+  longer claims that the process terminated; retries update one episode report without repeating
+  rollback, and report generator metadata now matches 0.1.5.
 - **Runtime and privacy claims are explicit** — snapshot deletes are documented as unattributed and
   non-enforcing, nonexistent audit/confirm modes are no longer advertised, `--no-llm` disables local
   Ollama traffic, and raw-IP checks no longer use untrusted/leaky reverse DNS.
 - **HALT now attempts control** — a HALT verdict attempts to SIGSTOP the agent process tree
-  (reversible pause, signalled once) and records the observed outcome in a forensic report.
-  Previously HALT only logged and the agent kept running.
+  (reversible pause) and records the observed outcome in a forensic report. Later HALTs reconcile
+  the visible process state before suppressing a signal, and failed one-shot attempts retry without
+  duplicating the episode report. Previously HALT only logged and the agent kept running.
 - **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
 - **Credential-read then non-local network-out exfil pattern KILLs deterministically**; a bare
   network-out without a preceding credential read stays HALT/FLAG, and localhost IPC stays SAFE

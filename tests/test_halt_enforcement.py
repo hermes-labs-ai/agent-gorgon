@@ -113,6 +113,7 @@ def test_execute_halt_suspends_once_idempotent(monkeypatch, tmp_path):
         return {"suspended": True, "pids_suspended": [4321], "errors": []}
 
     monkeypatch.setattr(w.killswitch, "suspend_agent", fake_suspend)
+    monkeypatch.setattr(w, "_agent_tree_is_suspended", lambda: True)
 
     asyncio.run(w.execute_halt(_halt_verdict()))
     assert w.suspended is True
@@ -120,6 +121,25 @@ def test_execute_halt_suspends_once_idempotent(monkeypatch, tmp_path):
     # Second HALT must NOT re-signal (no per-poll SIGSTOP spam).
     asyncio.run(w.execute_halt(_halt_verdict()))
     assert calls["n"] == 1
+
+
+def test_execute_halt_resignals_after_external_resume(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    calls = {"n": 0}
+
+    def fake_suspend():
+        calls["n"] += 1
+        return {"suspended": True, "pids_suspended": [4321], "errors": []}
+
+    monkeypatch.setattr(w.killswitch, "suspend_agent", fake_suspend)
+    monkeypatch.setattr(w, "_agent_tree_is_suspended", lambda: False)
+    w.suspended = True
+
+    asyncio.run(w.execute_halt(_halt_verdict()))
+
+    assert calls["n"] == 1
+    assert w.suspended is True
+    assert w.pending_halt is None
 
 
 def test_execute_halt_retries_after_failed_no_pid_suspend(monkeypatch, tmp_path):
@@ -145,6 +165,7 @@ def test_execute_halt_retries_after_failed_no_pid_suspend(monkeypatch, tmp_path)
     assert calls["n"] == 2
 
     # Only a successful suspension suppresses later duplicate signals.
+    monkeypatch.setattr(w, "_agent_tree_is_suspended", lambda: True)
     asyncio.run(w.execute_halt(_halt_verdict()))
     assert calls["n"] == 2
 
@@ -264,6 +285,8 @@ def test_suspend_agent_really_sigstops_a_child_process():
                 break
             time.sleep(0.02)
         assert stopped, f"expected STATUS_STOPPED, got {p.status()}"
+        w = Warden(scope_path=_scope_file(), agent_pid=proc.pid, enable_llm=False)
+        assert w._agent_tree_is_suspended() is True
 
         # Reversible: SIGCONT brings it back to a running/sleeping state.
         p.resume()
@@ -272,6 +295,7 @@ def test_suspend_agent_really_sigstops_a_child_process():
                 break
             time.sleep(0.02)
         assert p.status() != psutil.STATUS_STOPPED
+        assert w._agent_tree_is_suspended() is False
     finally:
         try:
             proc.kill()
@@ -581,3 +605,169 @@ def test_failed_one_shot_kill_is_retried_without_new_observation(
     assert observer.observe_calls == 1
     assert w.killed is True
     assert w.pending_kill is None
+
+
+def test_failed_kill_retry_reuses_rollback_and_incident(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    kill_results = iter([
+        {"killed": False, "pids_terminated": [], "errors": ["denied"]},
+        {"killed": True, "pids_terminated": [4321], "errors": []},
+    ])
+    rollback_calls = {"count": 0}
+
+    monkeypatch.setattr(w.killswitch, "kill_agent", lambda: next(kill_results))
+
+    def rollback(action):
+        rollback_calls["count"] += 1
+        return {"attempted": False, "success": False, "details": "none"}
+
+    monkeypatch.setattr(w.killswitch, "attempt_rollback", rollback)
+    verdict = _halt_verdict()
+    verdict.verdict = Verdict.KILL
+    verdict.reason = "reviewed kill episode"
+
+    asyncio.run(w.execute_kill(verdict))
+    first_report = w._kill_episode_report_path
+    asyncio.run(w.execute_kill(verdict, retry=True))
+
+    reports = list((tmp_path / "logs" / "incidents").glob("incident_*.json"))
+    assert rollback_calls["count"] == 1
+    assert len(reports) == 1
+    assert w._kill_episode_report_path == first_report
+    assert w.pending_kill is None
+    assert w.killed is True
+
+    import json
+
+    report = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert report["incident_report"]["status"] == "AGENT_TERMINATED"
+    assert report["liability_statement"]["agent_process_terminated"] is True
+    assert len(report["kill_attempts"]) == 2
+
+
+def test_repeated_failed_kill_retries_remain_one_episode(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    rollback_calls = {"count": 0}
+    monkeypatch.setattr(
+        w.killswitch,
+        "kill_agent",
+        lambda: {"killed": False, "pids_terminated": [], "errors": ["denied"]},
+    )
+
+    def rollback(action):
+        rollback_calls["count"] += 1
+        return {"attempted": False, "success": False, "details": "none"}
+
+    monkeypatch.setattr(w.killswitch, "attempt_rollback", rollback)
+    verdict = _halt_verdict()
+    verdict.verdict = Verdict.KILL
+    verdict.reason = "persistent denied kill"
+
+    asyncio.run(w.execute_kill(verdict))
+    asyncio.run(w.execute_kill(verdict, retry=True))
+    asyncio.run(w.execute_kill(verdict, retry=True))
+
+    reports = list((tmp_path / "logs" / "incidents").glob("incident_*.json"))
+    assert rollback_calls["count"] == 1
+    assert len(reports) == 1
+    assert w.pending_kill is verdict
+    assert w.killed is False
+
+    import json
+
+    report = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert report["incident_report"]["status"] == "TERMINATION_FAILED"
+    assert len(report["kill_attempts"]) == 3
+
+
+def test_distinct_successful_kills_create_distinct_episodes(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    rollback_calls = {"count": 0}
+    monkeypatch.setattr(
+        w.killswitch,
+        "kill_agent",
+        lambda: {"killed": True, "pids_terminated": [4321], "errors": []},
+    )
+
+    def rollback(action):
+        rollback_calls["count"] += 1
+        return {"attempted": False, "success": False, "details": "none"}
+
+    monkeypatch.setattr(w.killswitch, "attempt_rollback", rollback)
+    first = _halt_verdict()
+    first.verdict = Verdict.KILL
+    second = _halt_verdict()
+    second.verdict = Verdict.KILL
+
+    asyncio.run(w.execute_kill(first))
+    asyncio.run(w.execute_kill(second))
+
+    reports = list((tmp_path / "logs" / "incidents").glob("incident_*.json"))
+    assert rollback_calls["count"] == 2
+    assert len(reports) == 2
+
+
+def test_pending_kill_clears_when_target_is_already_gone(monkeypatch, tmp_path):
+    w = _warden(tmp_path)
+    w.enable_llm = False
+    pending = _halt_verdict()
+    pending.verdict = Verdict.KILL
+    w.pending_kill = pending
+    monkeypatch.setattr(w.observer, "is_agent_alive", lambda: False)
+
+    asyncio.run(w.run())
+
+    assert w.pending_kill is None
+
+
+def test_failed_one_shot_halt_retries_without_duplicate_report(
+    monkeypatch, tmp_path
+):
+    w = _warden(tmp_path)
+    w.enable_llm = False
+    suspend_results = iter([
+        {"suspended": False, "pids_suspended": [], "errors": ["denied"]},
+        {"suspended": True, "pids_suspended": [4321], "errors": []},
+    ])
+    suspend_calls = {"count": 0}
+    events = []
+
+    def fail_then_succeed():
+        suspend_calls["count"] += 1
+        events.append(f"suspend-{suspend_calls['count']}")
+        return next(suspend_results)
+
+    class OneShotHaltObserver:
+        def __init__(self):
+            self.alive_calls = 0
+            self.observe_calls = 0
+
+        def is_agent_alive(self):
+            self.alive_calls += 1
+            return self.alive_calls <= 2
+
+        def observe(self):
+            self.observe_calls += 1
+            events.append(f"observe-{self.observe_calls}")
+            if self.observe_calls == 1:
+                return [_read("/tmp/secret/token.txt", pid=os.getpid())]
+            return []
+
+    observer = OneShotHaltObserver()
+    w.observer = observer
+
+    async def halt_action(action):
+        return _halt_verdict()
+
+    monkeypatch.setattr(w, "evaluate_action", halt_action)
+    monkeypatch.setattr(w.killswitch, "suspend_agent", fail_then_succeed)
+
+    asyncio.run(w.run())
+
+    reports = list((tmp_path / "logs" / "incidents").glob("halt_*.json"))
+    assert suspend_calls["count"] == 2
+    assert observer.observe_calls == 2
+    assert events.index("suspend-2") < events.index("observe-2")
+    assert len(reports) == 1
+    assert w.pending_halt is None
+    assert w.suspended is True

@@ -105,7 +105,8 @@ defense-in-depth setup.
 - Snapshot-diff create/delete observations are unattributed and never suspend or kill the monitored process
 - Network observations are remote IP/port pairs; hostname allowlists do not authenticate an observed IP
 - Signal attempts can fail or only partially cover a changing process tree; reports record the
-  observed outcome and failed HALT/KILL attempts remain retryable
+  observed outcome. Failed HALT/KILL attempts remain retryable; retries reconcile actual process
+  state and update one episode report without repeating rollback side effects
 
 ---
 

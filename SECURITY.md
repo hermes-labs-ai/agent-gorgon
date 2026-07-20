@@ -22,7 +22,8 @@ Before production use:
 - Treat it as a best-effort polling guard, not a sandbox or syscall interceptor. Short-lived
   children and actions between polls can be missed.
 - HALT/KILL are signal attempts, not guaranteed outcomes. Inspect the recorded control result;
-  process-tree changes and OS permissions can produce partial or failed controls.
+  process-tree changes and OS permissions can produce partial or failed controls. Retry state is
+  reconciled against the visible process tree; one KILL episode reuses its rollback/report receipt.
 - Credential-read correlation treats localhost as IPC rather than egress; a later non-local
   connection inside the correlation window still activates the deterministic exfil KILL rule.
 - Relative recursive-delete operands are evaluated against the observed child cwd. If cwd capture
