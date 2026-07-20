@@ -658,6 +658,52 @@ def test_failed_one_shot_kill_is_retried_without_new_observation(
     assert w.pending_kill is None
 
 
+def test_partial_kill_with_child_error_stays_pending_until_complete(
+    monkeypatch, tmp_path
+):
+    """A killed parent does not complete the episode if a child remains live."""
+    w = _warden(tmp_path)
+    kill_results = iter([
+        {
+            "killed": True,
+            "pids_terminated": [4321],
+            "errors": ["Failed to kill child 4322: denied"],
+        },
+        {
+            "killed": True,
+            "pids_terminated": [4322],
+            "errors": [],
+        },
+    ])
+    rollback_calls = {"count": 0}
+    monkeypatch.setattr(w.killswitch, "kill_agent", lambda: next(kill_results))
+
+    def rollback(action):
+        rollback_calls["count"] += 1
+        return {"attempted": False, "success": False, "details": "none"}
+
+    monkeypatch.setattr(w.killswitch, "attempt_rollback", rollback)
+    verdict = _halt_verdict()
+    verdict.verdict = Verdict.KILL
+
+    asyncio.run(w.execute_kill(verdict))
+    assert w.killed is False
+    assert w.pending_kill is verdict
+
+    asyncio.run(w.execute_kill(verdict, retry=True))
+    assert w.killed is True
+    assert w.pending_kill is None
+    assert rollback_calls["count"] == 1
+
+    import json
+
+    reports = list((tmp_path / "logs" / "incidents").glob("incident_*.json"))
+    assert len(reports) == 1
+    report = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert report["incident_report"]["status"] == "AGENT_TERMINATED"
+    assert len(report["kill_attempts"]) == 2
+
+
 def test_failed_kill_retry_reuses_rollback_and_incident(monkeypatch, tmp_path):
     w = _warden(tmp_path)
     kill_results = iter([

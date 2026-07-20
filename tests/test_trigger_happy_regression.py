@@ -789,6 +789,63 @@ def test_observer_refreshes_current_established_connections(monkeypatch):
     assert second == []
 
 
+def test_observer_reemits_file_and_connection_after_close_then_reopen(monkeypatch):
+    """De-duplication applies only while an observed resource remains open."""
+
+    class Address:
+        def __init__(self, ip, port):
+            self.ip = ip
+            self.port = port
+
+    class OpenFile:
+        path = "/tmp/secret/token.txt"
+        mode = "r"
+        fd = 7
+
+    class Connection:
+        status = warden_module.psutil.CONN_ESTABLISHED
+        raddr = Address("8.8.8.8", 443)
+        laddr = Address("127.0.0.1", 50000)
+
+    class FakeParent:
+        files = [OpenFile()]
+        connections = [Connection()]
+
+        @classmethod
+        def open_files(cls):
+            return cls.files
+
+        @classmethod
+        def net_connections(cls):
+            return cls.connections
+
+        @staticmethod
+        def children():
+            return []
+
+    observer = ProcessObserver(agent_pid=1357)
+    monkeypatch.setattr(observer, "get_agent_pids", lambda: [1357])
+    monkeypatch.setattr(warden_module.psutil, "Process", lambda _pid: FakeParent())
+
+    first = observer.observe()
+    assert [action.action_type for action in first] == [
+        ActionType.FILE_READ,
+        ActionType.NETWORK_OUT,
+    ]
+
+    FakeParent.files = []
+    FakeParent.connections = []
+    assert observer.observe() == []
+
+    FakeParent.files = [OpenFile()]
+    FakeParent.connections = [Connection()]
+    reopened = observer.observe()
+    assert [action.action_type for action in reopened] == [
+        ActionType.FILE_READ,
+        ActionType.NETWORK_OUT,
+    ]
+
+
 def test_relative_credential_delete_resolves_against_child_cwd(monkeypatch, tmp_path):
     """Exact blocker: HOME child + `rm -rf .ssh` must never classify SAFE."""
     home = tmp_path / "home"

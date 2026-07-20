@@ -506,7 +506,9 @@ class IncidentLogger:
         kill_result = kill_result or {}
         rollback_result = rollback_result or {}
         terminated = bool(
-            kill_result.get("killed") and kill_result.get("pids_terminated")
+            kill_result.get("killed")
+            and kill_result.get("pids_terminated")
+            and not kill_result.get("errors")
         )
         if terminated:
             control_status = "AGENT_TERMINATED"
@@ -681,6 +683,9 @@ class Killswitch:
         except Exception as e:
             errors.append(f"Killswitch error: {e}")
 
+        # A terminated parent is not a completed tree kill when any observed
+        # descendant could not be terminated. Keep the episode retryable.
+        killed = killed and not errors
         return {"killed": killed, "pids_terminated": pids_terminated, "errors": errors}
 
     def suspend_agent(self) -> dict:
@@ -1021,6 +1026,8 @@ class ProcessObserver:
     def observe(self) -> list[AgentAction]:
         """Poll agent activity and return NEW actions since last check."""
         actions: list[AgentAction] = []
+        current_files: set[tuple[int, str, str]] = set()
+        current_connections: set[tuple[int, str, int]] = set()
         active_connections: set[tuple[int, str, int]] = set()
         self._active_connections = set()
         now = datetime.now(timezone.utc).isoformat()
@@ -1044,8 +1051,8 @@ class ProcessObserver:
                         fmode = getattr(f, 'mode', '') or ''
                         ffd = getattr(f, 'fd', None)
                         file_key = (pid, fpath, fmode)
+                        current_files.add(file_key)
                         if file_key not in self._known_files:
-                            self._known_files.add(file_key)
                             action_type = (
                                 ActionType.FILE_WRITE
                                 if any(c in fmode for c in 'wa+')
@@ -1065,9 +1072,9 @@ class ProcessObserver:
                     for conn in proc.net_connections():
                         if conn.status == 'ESTABLISHED' and conn.raddr:
                             conn_key = (pid, conn.raddr.ip, conn.raddr.port)
+                            current_connections.add(conn_key)
                             active_connections.add(conn_key)
                             if conn_key not in self._known_connections:
-                                self._known_connections.add(conn_key)
                                 actions.append(AgentAction(
                                     timestamp=now,
                                     action_type=ActionType.NETWORK_OUT,
@@ -1123,8 +1130,11 @@ class ProcessObserver:
             except psutil.NoSuchProcess:
                 continue
 
-        # Current-poll truth is distinct from _known_connections, which exists
-        # only to suppress duplicate NETWORK_OUT observations across polls.
+        # De-duplicate only while the same resource remains observed. A close
+        # followed by a reopen/reconnect is a new security-relevant transition
+        # and must emit another action for correlation.
+        self._known_files = current_files
+        self._known_connections = current_connections
         self._active_connections = active_connections
 
         # ── Filesystem diff ──
@@ -2789,7 +2799,9 @@ class Warden:
             f"errors={kill_result.get('errors', [])}"
         )
         self.killed = bool(
-            kill_result.get("killed") and kill_result.get("pids_terminated")
+            kill_result.get("killed")
+            and kill_result.get("pids_terminated")
+            and not kill_result.get("errors")
         )
         self.pending_kill = None if self.killed else verdict
         self._kill_episode_attempts.append(kill_result)

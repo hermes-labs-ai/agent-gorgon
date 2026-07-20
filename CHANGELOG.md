@@ -18,9 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Prior exact-review blockers closed** — shell `-c` parsing preserves the command-string boundary,
   advisory LLM fanout is bounded to one in-flight task, and completed advisory evidence is persisted.
-- **Evidence claims are outcome-bound** — a failed SIGKILL attempt stays retryable and its report no
-  longer claims that the process terminated; retries update one episode report without repeating
-  rollback, and report generator metadata now matches 0.1.5.
+- **Evidence claims are outcome-bound** — a failed or partial process-tree SIGKILL attempt stays
+  retryable and its report no longer claims that the process terminated; retries update one episode
+  report without repeating rollback, and report generator metadata now matches 0.1.5.
 - **Runtime and privacy claims are explicit** — snapshot deletes are documented as unattributed and
   non-enforcing, nonexistent audit/confirm modes are no longer advertised, `--no-llm` disables local
   Ollama traffic, and raw-IP checks no longer use untrusted/leaky reverse DNS.
@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Credential-read plus non-local network egress KILLs deterministically** when an external socket
   is active at read time or a new external connection appears inside the correlation window. A bare
   network-out stays HALT/FLAG, and the complete IP loopback ranges stay SAFE without disarming a
-  later external-egress correlation.
+  later external-egress correlation. A close followed by a reopen or reconnect emits a fresh
+  observation instead of being suppressed by lifetime de-duplication.
 - **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic
   FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind
   to them). Literal symlink roots such as macOS `/tmp` are opened through a pinned concrete target
