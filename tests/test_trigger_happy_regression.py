@@ -179,6 +179,26 @@ def test_unconfigured_wrapper_recursive_rm_uncertainty_still_halts():
     assert "uncertain compound shell recursive rm" in verdict.reason.lower()
 
 
+def test_allowed_shell_cannot_delete_forbidden_extension_in_allowed_scope():
+    """A process allowlist must not erase configured filesystem KILL rules."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.scope.forbidden_extensions = [".pem"]
+    w.judge.available = False
+    project = os.path.expanduser("~/project")
+
+    forbidden = asyncio.run(
+        w.evaluate_action(_exec(f"sh -c 'rm -rf {project}/key.pem'"))
+    )
+    benign = asyncio.run(
+        w.evaluate_action(_exec(f"sh -c 'rm -rf {project}/cache.txt'"))
+    )
+
+    assert forbidden.verdict == Verdict.KILL
+    assert "forbidden file type" in forbidden.reason.lower()
+    assert benign.verdict == Verdict.SAFE
+
+
 def test_allowed_shell_halts_out_of_scope_recursive_delete(
     monkeypatch, tmp_path
 ):

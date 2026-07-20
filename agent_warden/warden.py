@@ -1943,19 +1943,14 @@ class Warden:
             return False
         return True
 
-    def _rm_target_is_allowed_cleanup(
+    def _resolve_rm_target(
         self,
         target: str,
         working_directory: str | None,
         *,
         shell_expansion: bool = True,
-    ) -> bool:
-        """Whether a literal recursive-delete operand is scoped project cleanup.
-
-        Filesystem allowlists remain authoritative for every operand. Relative
-        conventional cleanup remains low-noise when its observed child cwd
-        resolves it inside the configured project/workspace scope.
-        """
+    ) -> str | None:
+        """Resolve one literal recursive-delete operand against the child cwd."""
         raw = target.strip()
         # Under the supported environment HOME is known. Reduce the successful
         # branch of the exact ${HOME:?word}/${HOME?word} forms already accepted
@@ -1976,8 +1971,30 @@ class Warden:
         resolved = os.path.normpath(expanded)
         if not os.path.isabs(resolved):
             if working_directory is None:
-                return False
+                return None
             resolved = os.path.normpath(os.path.join(working_directory, resolved))
+        return resolved
+
+    def _rm_target_is_allowed_cleanup(
+        self,
+        target: str,
+        working_directory: str | None,
+        *,
+        shell_expansion: bool = True,
+    ) -> bool:
+        """Whether a literal recursive-delete operand is scoped project cleanup.
+
+        Filesystem allowlists remain authoritative for every operand. Relative
+        conventional cleanup remains low-noise when its observed child cwd
+        resolves it inside the configured project/workspace scope.
+        """
+        resolved = self._resolve_rm_target(
+            target,
+            working_directory,
+            shell_expansion=shell_expansion,
+        )
+        if resolved is None:
+            return False
 
         return self.scope._path_matches(resolved, self.scope.allowed_paths)
 
@@ -2111,6 +2128,26 @@ class Warden:
                     RecursiveRmState.UNCERTAIN,
                     target=p,
                     reason="relative recursive-rm target has no observed child cwd",
+                )
+        for p in path_args:
+            resolved = self._resolve_rm_target(
+                p,
+                working_directory,
+                shell_expansion=shell_expansion,
+            )
+            if resolved is None:
+                continue
+            filesystem_verdict, filesystem_reason = self.scope.check_filesystem(
+                resolved
+            )
+            if filesystem_verdict == Verdict.KILL:
+                return self._apply_wrapper_uncertainty(
+                    RecursiveRmDecision(
+                        RecursiveRmState.PROTECTED,
+                        target=p,
+                        reason=filesystem_reason,
+                    ),
+                    wrapper_uncertainty,
                 )
         for p in path_args:
             if not self._rm_target_is_allowed_cleanup(
@@ -2715,9 +2752,15 @@ class Warden:
                 observed_argv=observed_argv,
             )
             if rm_decision.state == RecursiveRmState.PROTECTED:
+                protected_reason = f"rm -rf targeting protected root: {rm_decision.target}"
+                if rm_decision.reason.startswith("Accessed forbidden file type:"):
+                    protected_reason = (
+                        "rm -rf targeting protected filesystem target: "
+                        f"{rm_decision.target} ({rm_decision.reason})"
+                    )
                 return WardenVerdict(
                     verdict=Verdict.KILL,
-                    reason=f"rm -rf targeting protected root: {rm_decision.target}",
+                    reason=protected_reason,
                     action=action, evaluator="rule_engine"
                 )
             if rm_decision.state == RecursiveRmState.OUT_OF_SCOPE:
