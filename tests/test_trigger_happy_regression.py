@@ -544,6 +544,27 @@ def test_nested_shell_and_eval_payloads_preserve_recursive_delete_enforcement():
     )
     assert dynamic.verdict == Verdict.HALT
 
+    assigned_dynamic = asyncio.run(
+        w.evaluate_action(
+            _exec("sh -c 'CMD=\"rm -rf /\"; eval \"$CMD\"'")
+        )
+    )
+    assert assigned_dynamic.verdict == Verdict.HALT
+
+    assigned_cleanup = asyncio.run(
+        w.evaluate_action(
+            _exec("sh -c 'CMD=\"rm -rf build\"; eval \"$CMD\"'")
+        )
+    )
+    assert assigned_cleanup.verdict == Verdict.SAFE
+
+    inert_assignment = asyncio.run(
+        w.evaluate_action(
+            _exec("sh -c 'CMD=\"rm -rf /\"; echo \"$CMD\"'")
+        )
+    )
+    assert inert_assignment.verdict == Verdict.SAFE
+
     for cmd in (
         "sh -c 'eval \"rm -rf build\"'",
         "sh -c 'sh -c \"rm -rf build\"'",

@@ -280,6 +280,7 @@ def test_count_cap_emits_single_flag_and_no_per_file_actions(tmp_path):
     assert len(actions) == 1
     assert actions[0].action_type == ActionType.UNKNOWN
     assert actions[0].target == "scope too large to snapshot"
+    assert actions[0].details["snapshot_incomplete"] is True
     assert actions[0].source_pid is None
     # a capped/truncated snapshot must NOT establish a baseline (would emit
     # spurious deletes on the next poll)
@@ -384,6 +385,30 @@ def test_single_benign_diff_delete_is_safe_not_halt_or_kill():
     w.judge.available = False
     v = asyncio.run(w.evaluate_action(_diff_delete("/tmp/work/note.txt")))
     assert v.verdict == Verdict.SAFE  # observed in-scope, but not attributed
+
+
+def test_snapshot_cap_signal_is_flag_even_when_warden_cwd_is_allowed():
+    """An incomplete snapshot cannot become SAFE through relative path lookup."""
+    w = _routing_warden()
+    cwd = os.getcwd()
+    w.scope.allowed_paths = [cwd, f"{cwd}/**"]
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.UNKNOWN,
+        target="scope too large to snapshot",
+        details={
+            "detected_by": "scope_diff",
+            "attribution": "unattributed",
+            "snapshot_incomplete": True,
+            "file_cap": 5,
+            "root_cap": 10,
+        },
+    )
+
+    verdict = asyncio.run(w.evaluate_action(action))
+
+    assert verdict.verdict == Verdict.FLAG
+    assert "incomplete" in verdict.reason.lower()
 
 
 def test_diff_delete_of_forbidden_path_is_flag_not_halt_or_kill():

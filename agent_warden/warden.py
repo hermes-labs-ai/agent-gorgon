@@ -26,6 +26,7 @@ import asyncio
 import glob
 import json
 import os
+import re
 import sys
 import time
 import shlex
@@ -1028,6 +1029,7 @@ class ProcessObserver:
                 target="scope too large to snapshot",
                 details={"detected_by": "scope_diff",
                          "attribution": "unattributed",
+                         "snapshot_incomplete": True,
                          "file_cap": self._snapshot_file_cap,
                          "root_cap": self._scope_root_cap},
             ))
@@ -2399,8 +2401,16 @@ class Warden:
                     )
 
         saw_benign = False
+        shell_assignments: dict[str, str] = {}
         uncertain: RecursiveRmDecision | None = None
         for segment in self._shell_command_segments(payload):
+            if segment and all(
+                self._is_shell_assignment_word(token) for token in segment
+            ):
+                for token in segment:
+                    name, _separator, value = token.partition("=")
+                    shell_assignments[name] = value
+
             direct = self._classify_rm_tokens(segment, working_directory)
             if direct.state == RecursiveRmState.PROTECTED:
                 return self._apply_wrapper_uncertainty(
@@ -2424,11 +2434,28 @@ class Warden:
                 continue
 
             nested_command: str | None = None
+            eval_uses_known_assignment = False
             if normalized_base == "eval" and len(normalized) > 1:
                 # POSIX eval joins its argv with spaces, then parses that result
                 # as shell input. Preserve that execution boundary explicitly.
+                eval_text = " ".join(normalized[1:])
+
+                def expand_known_assignment(match: re.Match[str]) -> str:
+                    nonlocal eval_uses_known_assignment
+                    name = match.group(1) or match.group(2)
+                    if name not in shell_assignments:
+                        return match.group(0)
+                    eval_uses_known_assignment = True
+                    return shell_assignments[name]
+
+                eval_text = re.sub(
+                    r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|"
+                    r"\$([A-Za-z_][A-Za-z0-9_]*)",
+                    expand_known_assignment,
+                    eval_text,
+                )
                 nested_command = shlex.join(
-                    ["sh", "-c", " ".join(normalized[1:])]
+                    ["sh", "-c", eval_text]
                 )
             elif normalized_base in {"bash", "dash", "ksh", "sh", "zsh"}:
                 nested_command = shlex.join(normalized)
@@ -2452,6 +2479,19 @@ class Warden:
                     working_directory,
                     _shell_depth=_shell_depth + 1,
                 )
+                if eval_uses_known_assignment and nested.state in {
+                    RecursiveRmState.OUT_OF_SCOPE,
+                    RecursiveRmState.PROTECTED,
+                    RecursiveRmState.UNCERTAIN,
+                }:
+                    uncertain = RecursiveRmDecision(
+                        RecursiveRmState.UNCERTAIN,
+                        target=nested.target,
+                        reason=(
+                            "eval expands an assigned recursive-rm command"
+                        ),
+                    )
+                    continue
                 if nested.state == RecursiveRmState.PROTECTED:
                     return self._apply_wrapper_uncertainty(
                         nested, wrapper_uncertainty
@@ -2884,6 +2924,17 @@ class Warden:
         # process. Protected-path observations are downgraded to FLAG.
         is_diff = action.details.get("detected_by") == "scope_diff"
         if is_diff:
+            if action.details.get("snapshot_incomplete") is True:
+                return WardenVerdict(
+                    verdict=Verdict.FLAG,
+                    reason=(
+                        "Unattributed scope-diff observation: filesystem "
+                        "snapshot is incomplete because its configured cap "
+                        "was exceeded"
+                    ),
+                    action=action,
+                    evaluator="rule_engine",
+                )
             verdict, reason = self.scope.check_filesystem(action.target)
             if verdict == Verdict.KILL:
                 verdict = Verdict.FLAG
