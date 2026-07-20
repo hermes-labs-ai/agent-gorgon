@@ -215,6 +215,9 @@ validating hard invariants and OS visibility.
 - **3+ process-attributed `FILE_DELETE` events in 10 seconds** — available to integrations that can supply attribution; built-in snapshot diffs do not activate this trigger
 - **Relative recursive delete with no observed child cwd** — the target cannot be resolved safely,
   so the Warden pauses instead of guessing SAFE or assigning irreversible KILL authority
+- **Recursive delete outside allowed filesystem scope** — arbitrary literal targets do not become
+  SAFE merely because their `sh`/`bash` wrapper is allowed; recognized project cleanup and targets
+  inside `filesystem.allowed_paths` remain low-noise
 - **Recursive delete with unresolved wrapper, command, option, or target semantics** — the Warden
   pauses when exact reduction is not possible instead of guessing SAFE or assigning KILL authority
 

@@ -78,6 +78,7 @@ class ActionType(Enum):
 class RecursiveRmState(Enum):
     NONE = "none"
     BENIGN = "benign"
+    OUT_OF_SCOPE = "out_of_scope"
     PROTECTED = "protected"
     UNCERTAIN = "uncertain"
 
@@ -1919,6 +1920,35 @@ class Warden:
             return False
         return True
 
+    _PROJECT_CLEANUP_COMPONENTS = frozenset({
+        ".venv", "__pycache__", "build", "dist", "node_modules", "project",
+        "target",
+    })
+
+    def _rm_target_is_allowed_cleanup(
+        self, target: str, working_directory: str | None
+    ) -> bool:
+        """Whether a literal recursive-delete operand is scoped project cleanup.
+
+        Filesystem allowlists remain authoritative for arbitrary operands. A
+        deliberately small set of conventional build/project directories keeps
+        the low-noise cleanup behavior that motivated the recursive-rm change.
+        """
+        expanded = os.path.expandvars(os.path.expanduser(target.strip()))
+        resolved = os.path.normpath(expanded)
+        if not os.path.isabs(resolved):
+            if working_directory is None:
+                return False
+            resolved = os.path.normpath(os.path.join(working_directory, resolved))
+
+        if self.scope._path_matches(resolved, self.scope.allowed_paths):
+            return True
+
+        return any(
+            component in self._PROJECT_CLEANUP_COMPONENTS
+            for component in resolved.split(os.sep)
+        )
+
     def _classify_rm_tokens(
         self, tokens: list[str], working_directory: str | None = None
     ) -> RecursiveRmDecision:
@@ -2018,6 +2048,13 @@ class Warden:
                     target=p,
                     reason="relative recursive-rm target has no observed child cwd",
                 )
+        for p in path_args:
+            if not self._rm_target_is_allowed_cleanup(p, working_directory):
+                return RecursiveRmDecision(
+                    RecursiveRmState.OUT_OF_SCOPE,
+                    target=p,
+                    reason="recursive-rm target is outside allowed filesystem scope",
+                )
         return self._apply_wrapper_uncertainty(
             RecursiveRmDecision(
                 RecursiveRmState.BENIGN,
@@ -2097,7 +2134,10 @@ class Warden:
                 return self._apply_wrapper_uncertainty(
                     direct, wrapper_uncertainty
                 )
-            if direct.state == RecursiveRmState.UNCERTAIN:
+            if direct.state in {
+                RecursiveRmState.OUT_OF_SCOPE,
+                RecursiveRmState.UNCERTAIN,
+            }:
                 uncertain = direct
             elif direct.state == RecursiveRmState.BENIGN:
                 saw_benign = True
@@ -2144,7 +2184,10 @@ class Warden:
                     return self._apply_wrapper_uncertainty(
                         nested, wrapper_uncertainty
                     )
-                if nested.state == RecursiveRmState.UNCERTAIN:
+                if nested.state in {
+                    RecursiveRmState.OUT_OF_SCOPE,
+                    RecursiveRmState.UNCERTAIN,
+                }:
                     uncertain = nested
                 elif nested.state == RecursiveRmState.BENIGN:
                     saw_benign = True
@@ -2157,6 +2200,7 @@ class Warden:
                     normalized[rm_index:], working_directory
                 )
                 if embedded.state in {
+                    RecursiveRmState.OUT_OF_SCOPE,
                     RecursiveRmState.PROTECTED,
                     RecursiveRmState.UNCERTAIN,
                 }:
@@ -2466,6 +2510,16 @@ class Warden:
                     verdict=Verdict.KILL,
                     reason=f"rm -rf targeting protected root: {rm_decision.target}",
                     action=action, evaluator="rule_engine"
+                )
+            if rm_decision.state == RecursiveRmState.OUT_OF_SCOPE:
+                return WardenVerdict(
+                    verdict=Verdict.HALT,
+                    reason=(
+                        "Recursive rm target outside allowed filesystem scope: "
+                        f"{rm_decision.target}"
+                    ),
+                    action=action,
+                    evaluator="rule_engine",
                 )
             if rm_decision.state == RecursiveRmState.UNCERTAIN:
                 return WardenVerdict(

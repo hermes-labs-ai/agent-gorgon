@@ -29,6 +29,8 @@ Before production use:
   correlation window activates the deterministic exfil KILL rule.
 - Relative recursive-delete operands are evaluated against the observed child cwd. If cwd capture
   is unavailable, Agent Warden HALTs rather than classifying the delete SAFE.
+  Literal recursive-delete targets outside `filesystem.allowed_paths` also HALT unless they are a
+  recognized project/build cleanup directory; allowing a shell does not allow arbitrary operands.
   Supported `env` wrappers and root/home glob or ancestor forms are reduced before classification;
   unresolved wrapper or shell-expansion semantics also HALT rather than acquiring irreversible
   KILL authority. Forbidden-glob intersections are decided symbolically without a recursive

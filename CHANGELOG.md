@@ -38,7 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind
   to them). Literal symlink roots such as macOS `/tmp` are opened through a pinned concrete target
   while evidence retains the configured path spelling; descendant symlinks are not traversed.
-- **No more SIGKILL on benign dev work** — rate-limit breaches and project-dir recursive deletes downgrade to FLAG; `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare directory (contents-glob regression closed).
+- **No more SIGKILL on benign dev work** — rate-limit breaches do not kill, and recognized
+  project/build cleanup remains low-noise. Arbitrary recursive-delete operands outside the
+  filesystem allowlist HALT reversibly instead of becoming SAFE through an allowed shell;
+  `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare
+  directory (contents-glob regression closed).
 - **Relative recursive-delete targets use the observed child cwd** — `sh -c 'rm -rf .ssh'`
   launched from the user's home now resolves to the protected credential directory; if child-cwd
   observation is unavailable, the Warden HALTs instead of guessing SAFE. Known project cwd cleanup

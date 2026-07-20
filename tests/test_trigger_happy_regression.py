@@ -138,6 +138,46 @@ def test_rm_rf_project_dirs_do_not_kill():
         assert v.verdict != Verdict.KILL, cmd
 
 
+def test_allowed_shell_halts_out_of_scope_recursive_delete(
+    monkeypatch, tmp_path
+):
+    """An allowed shell must not make an arbitrary filesystem target SAFE."""
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    documents = home / "Documents"
+    home.mkdir()
+    workspace.mkdir()
+    documents.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.scope.allowed_paths = [f"{workspace}/**"]
+    w.judge.available = False
+
+    outside = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.PROCESS_EXEC,
+        target="sh -c 'rm -rf ~/Documents'",
+        details={"cwd": str(workspace)},
+    )
+    verdict = asyncio.run(w.evaluate_action(outside))
+    assert verdict.verdict == Verdict.HALT
+    assert "outside allowed filesystem scope" in verdict.reason.lower()
+
+    for cmd in (
+        f"sh -c 'rm -rf {workspace}/cache'",
+        "sh -c 'rm -rf build .venv node_modules'",
+    ):
+        action = AgentAction(
+            timestamp=_now_iso(),
+            action_type=ActionType.PROCESS_EXEC,
+            target=cmd,
+            details={"cwd": str(workspace)},
+        )
+        assert asyncio.run(w.evaluate_action(action)).verdict == Verdict.SAFE, cmd
+
+
 # ── (c) protected-root recursive rm STILL kills ───────────────────────────────
 
 def test_rm_rf_filesystem_root_kills():
@@ -370,13 +410,22 @@ def test_shell_comments_do_not_become_recursive_delete_evidence():
         "sh -c 'echo ok # rm -rf /'",
         "sh -c 'echo start\n# rm -rf /\necho end'",
         "sh -c 'rm -rf build # routine cleanup'",
-        "sh -c \"rm -rf '/#'\"",
-        r"sh -c 'rm -rf /\#'",
     )
     for cmd in safe_commands:
         verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
         assert verdict.verdict == Verdict.SAFE, cmd
         assert "uncertain compound" not in verdict.reason.lower(), cmd
+
+    # Quoted and escaped '#' bytes are real path data rather than comments.
+    # Because these exact operands are outside the filesystem allowlist, they
+    # pause reversibly instead of being confused with comment-only evidence.
+    for cmd in (
+        "sh -c \"rm -rf '/#'\"",
+        r"sh -c 'rm -rf /\#'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "outside allowed filesystem scope" in verdict.reason.lower(), cmd
 
     kill_commands = (
         "sh -c 'rm -rf / # destructive command before comment'",
