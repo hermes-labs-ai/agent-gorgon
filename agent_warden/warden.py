@@ -1827,12 +1827,19 @@ class Warden:
         if raw.startswith("$HOME") and (
             len(raw) == len("$HOME") or raw[len("$HOME")] in "/.*?["
         ):
-            return False
+            return "$" in raw[len("$HOME"):]
         if raw.startswith("${HOME}"):
-            return False
+            return "$" in raw[len("${HOME}"):]
         for prefix in ("${HOME:?", "${HOME?", "${HOME:-", "${HOME-", "${HOME:=", "${HOME="):
-            if raw.startswith(prefix) and "}" in raw[len(prefix):]:
-                return False
+            if not raw.startswith(prefix):
+                continue
+            closing = raw.find("}", len(prefix))
+            if closing >= len(prefix):
+                # The known HOME expansion is safe to reduce only when neither
+                # its parameter word nor the remaining operand contains another
+                # expansion. For example, $HOME/${BAD} must HALT rather than
+                # becoming a confidently benign literal project path.
+                return "$" in raw[len(prefix):]
         return True
 
     @staticmethod
@@ -1915,6 +1922,13 @@ class Warden:
                 target=unresolved_option,
                 reason="recursive-rm option contains unresolved shell expansion",
             )
+        for p in path_args:
+            if self._rm_target_has_unresolved_expansion(p):
+                return RecursiveRmDecision(
+                    RecursiveRmState.UNCERTAIN,
+                    target=p,
+                    reason="recursive-rm target contains unresolved shell expansion",
+                )
         uncertain_protection: str | None = None
         for p in path_args:
             protection = self._is_protected_root(p, working_directory)
@@ -1935,13 +1949,6 @@ class Warden:
                 target=uncertain_protection,
                 reason="recursive-rm target may intersect a configured forbidden glob",
             )
-        for p in path_args:
-            if self._rm_target_has_unresolved_expansion(p):
-                return RecursiveRmDecision(
-                    RecursiveRmState.UNCERTAIN,
-                    target=p,
-                    reason="recursive-rm target contains unresolved shell expansion",
-                )
         for p in path_args:
             if working_directory is None and self._rm_target_depends_on_cwd(p):
                 return RecursiveRmDecision(

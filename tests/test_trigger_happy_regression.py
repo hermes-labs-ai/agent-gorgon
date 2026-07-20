@@ -327,9 +327,30 @@ def test_dynamic_recursive_rm_in_shell_payload_halts_reversibly():
     w = _warden()
     w.scope.allowed_commands.extend(["sh"])
     w.judge.available = False
-    verdict = asyncio.run(w.evaluate_action(_exec("sh -c 'rm -rf \"$TARGET\"'")))
-    assert verdict.verdict == Verdict.HALT
-    assert "unresolved shell expansion" in verdict.reason.lower()
+    for cmd in (
+        "sh -c 'rm -rf \"$TARGET\"'",
+        "sh -c 'BAD=.ssh rm -rf $HOME/${BAD}'",
+        "sh -c 'rm -rf ${HOME}/${TARGET}'",
+        "sh -c 'rm -rf ${HOME:?}/${TARGET}'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "unresolved shell expansion" in verdict.reason.lower(), cmd
+
+
+def test_literal_home_project_cleanup_remains_benign():
+    """Known HOME plus a literal project suffix stays routine cleanup."""
+    w = _warden()
+    w.scope.allowed_commands.extend(["sh"])
+    w.judge.available = False
+    for cmd in (
+        "sh -c 'rm -rf $HOME/project'",
+        "sh -c 'rm -rf ${HOME}/project'",
+        "sh -c 'rm -rf ${HOME:?}/project'",
+    ):
+        verdict = asyncio.run(w.evaluate_action(_exec(cmd)))
+        assert verdict.verdict == Verdict.SAFE, cmd
+        assert "uncertain" not in verdict.reason.lower(), cmd
 
 
 def test_shell_expansion_in_rm_command_or_option_halts_reversibly():
