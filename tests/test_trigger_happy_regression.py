@@ -155,15 +155,21 @@ def test_allowed_shell_halts_out_of_scope_recursive_delete(
     w.scope.allowed_paths = [f"{workspace}/**"]
     w.judge.available = False
 
-    outside = AgentAction(
-        timestamp=_now_iso(),
-        action_type=ActionType.PROCESS_EXEC,
-        target="sh -c 'rm -rf ~/Documents'",
-        details={"cwd": str(workspace)},
-    )
-    verdict = asyncio.run(w.evaluate_action(outside))
-    assert verdict.verdict == Verdict.HALT
-    assert "outside allowed filesystem scope" in verdict.reason.lower()
+    for cmd in (
+        "sh -c 'rm -rf ~/Documents'",
+        "sh -c 'rm -rf ~/Documents/build'",
+        "sh -c 'rm -rf /etc/build'",
+        "sh -c 'rm -rf /etc/project'",
+    ):
+        outside = AgentAction(
+            timestamp=_now_iso(),
+            action_type=ActionType.PROCESS_EXEC,
+            target=cmd,
+            details={"cwd": str(workspace)},
+        )
+        verdict = asyncio.run(w.evaluate_action(outside))
+        assert verdict.verdict == Verdict.HALT, cmd
+        assert "outside allowed filesystem scope" in verdict.reason.lower(), cmd
 
     for cmd in (
         f"sh -c 'rm -rf {workspace}/cache'",

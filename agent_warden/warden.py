@@ -1934,9 +1934,26 @@ class Warden:
         deliberately small set of conventional build/project directories keeps
         the low-noise cleanup behavior that motivated the recursive-rm change.
         """
-        expanded = os.path.expandvars(os.path.expanduser(target.strip()))
+        raw = target.strip()
+        # Under the supported environment HOME is known. Reduce the successful
+        # branch of the exact ${HOME:?word}/${HOME?word} forms already accepted
+        # by the protected-root classifier; general parameter expansion remains
+        # uncertain earlier in the pipeline.
+        for prefix in ("${HOME:?", "${HOME?"):
+            if not raw.startswith(prefix):
+                continue
+            closing = raw.rfind("}")
+            if closing >= len(prefix):
+                raw = "~" + raw[closing + 1:]
+            break
+
+        expanded = os.path.expandvars(os.path.expanduser(raw))
+        was_relative = not os.path.isabs(expanded)
         resolved = os.path.normpath(expanded)
-        if not os.path.isabs(resolved):
+        if was_relative:
+            relative_root = resolved.split(os.sep, 1)[0]
+            if relative_root in self._PROJECT_CLEANUP_COMPONENTS:
+                return True
             if working_directory is None:
                 return False
             resolved = os.path.normpath(os.path.join(working_directory, resolved))
@@ -1944,10 +1961,13 @@ class Warden:
         if self.scope._path_matches(resolved, self.scope.allowed_paths):
             return True
 
-        return any(
-            component in self._PROJECT_CLEANUP_COMPONENTS
-            for component in resolved.split(os.sep)
+        # Preserve the explicit literal HOME/project countercontrol without
+        # making any arbitrary absolute path ending in `project` or `build`
+        # exempt from the filesystem allowlist.
+        home_project = os.path.normpath(
+            os.path.join(os.path.expanduser("~"), "project")
         )
+        return resolved == home_project or resolved.startswith(home_project + os.sep)
 
     def _classify_rm_tokens(
         self, tokens: list[str], working_directory: str | None = None
