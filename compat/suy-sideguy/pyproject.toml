@@ -15,7 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = ["agent-warden==0.1.5"]
+dependencies = ["agent-gorgon==0.1.5"]
 
 [project.scripts]
 suy-warden = "suy_sideguy._compat_cli:warden"

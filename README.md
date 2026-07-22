@@ -26,10 +26,10 @@ cannot establish which process performed the deletion.
 
 ## Install
 
-Install the canonical distribution from PyPI:
+Install the canonical distribution from PyPI (published as `agent-gorgon` — the `agent-warden` name is unavailable on PyPI):
 
 ```bash
-pip install agent-warden==0.1.5
+pip install agent-gorgon==0.1.5
 ```
 
 Existing `suy-sideguy` users can upgrade through the 0.1.5 compatibility release:
@@ -111,7 +111,7 @@ defense-in-depth setup.
 Install from PyPI:
 
 ```bash
-pip install agent-warden==0.1.5
+pip install agent-gorgon==0.1.5
 ```
 
 For contributor development from a source checkout:

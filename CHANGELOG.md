@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Agent Warden is the canonical identity** — the primary distribution is `agent-warden`,
   imports use `agent_warden`, and the CLIs are `agent-warden` and `agent-warden-forensic`.
 - **Suy Sideguy is a time-bounded compatibility shim** — `suy-sideguy==0.1.5` depends on
-  exactly `agent-warden==0.1.5`, forwards historical imports and commands, and emits
+  exactly `agent-gorgon==0.1.5` (the PyPI distribution of Agent Warden), forwards historical imports and commands, and emits
   deprecation diagnostics. The proposed default removal is Agent Warden 0.4.0, no earlier
   than 2026-10-10 and only after the owner records the release flip.
 

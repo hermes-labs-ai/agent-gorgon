@@ -3,7 +3,7 @@ requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-warden"
+name = "agent-gorgon"
 version = "0.1.5"
 description = "Best-effort user-space polling guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
