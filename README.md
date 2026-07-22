@@ -1,6 +1,6 @@
-# agent-warden
+# agent-gorgon
 
-agent-warden is a user-space runtime policy guard for autonomous AI agents. It polls a live
+agent-gorgon (formerly agent-warden) is a user-space runtime policy guard for autonomous AI agents. It polls a live
 process tree, applies deterministic policy to attributed observations, and records control attempts
 and forensic evidence.
 
@@ -9,7 +9,7 @@ polling monitor, not pre-execution interposition: an action may already have sta
 before it is observed.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
-[![CI](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml)
+[![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
 
 If 40 files disappear between snapshots, Agent Warden records 40 unattributed delete observations.
 It does not suspend the monitored process from those observations alone because a directory diff
@@ -78,7 +78,7 @@ defense-in-depth setup.
 - Not a substitute for input-side prompt-injection defenses.
 - Not proof that any single policy file covers every workload safely. Policies need calibration on each workload.
 
-![agent-warden preview](https://raw.githubusercontent.com/hermes-labs-ai/agent-warden/main/assets/preview.png)
+![agent-warden preview](https://raw.githubusercontent.com/hermes-labs-ai/agent-gorgon/main/assets/preview.png)
 
 ---
 
@@ -117,8 +117,8 @@ pip install agent-gorgon==0.1.5
 For contributor development from a source checkout:
 
 ```bash
-git clone https://github.com/hermes-labs-ai/agent-warden.git
-cd agent-warden
+git clone https://github.com/hermes-labs-ai/agent-gorgon.git
+cd agent-gorgon
 pip install -e ".[dev]"
 ```
 
@@ -256,13 +256,13 @@ _Current status based on repository checks and CI configuration; not a formal se
 - ✅ Publish workflow (`.github/workflows/publish.yml`)
 - ✅ Security disclosure policy (`SECURITY.md`)
 
-If agent-warden saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-warden) — it helps others find it.
+If agent-gorgon saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-gorgon) — it helps others find it.
 
 ---
 
 ## About Hermes Labs
 
-Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. We call the discipline **Epistemic Engineering**. The Hermes Labs position: **the model is the substrate** — the trained system, the capability ceiling — but **language is the operations layer**: the prompts, scaffolds, evals, memory layers, and audit surfaces where deployed reliability is won or lost. agent-warden is part of that **linguistic infrastructure** — the runtime-enforcement layer of the stack. More at [hermes-labs.ai](https://hermes-labs.ai).
+Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. We call the discipline **Epistemic Engineering**. The Hermes Labs position: **the model is the substrate** — the trained system, the capability ceiling — but **language is the operations layer**: the prompts, scaffolds, evals, memory layers, and audit surfaces where deployed reliability is won or lost. agent-gorgon is part of that **linguistic infrastructure** — the runtime-enforcement layer of the stack. More at [hermes-labs.ai](https://hermes-labs.ai).
 
 ---
 
