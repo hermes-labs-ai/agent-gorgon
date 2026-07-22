@@ -262,7 +262,7 @@ If agent-warden saves you time, please [star the repo](https://github.com/hermes
 
 ## About Hermes Labs
 
-Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. More at [hermes-labs.ai](https://hermes-labs.ai).
+Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. We call the discipline **Epistemic Engineering**. The Hermes Labs position: **the model is the substrate** — the trained system, the capability ceiling — but **language is the operations layer**: the prompts, scaffolds, evals, memory layers, and audit surfaces where deployed reliability is won or lost. agent-warden is part of that **linguistic infrastructure** — the runtime-enforcement layer of the stack. More at [hermes-labs.ai](https://hermes-labs.ai).
 
 ---
 
