@@ -530,7 +530,7 @@ class IncidentLogger:
         report = {
             "incident_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.5",
+                "generator": "Agent Warden v0.1.6",
                 "session_id": self.session_id,
                 "status": control_status,
             },
@@ -599,7 +599,7 @@ class IncidentLogger:
         report = {
             "halt_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.5",
+                "generator": "Agent Warden v0.1.6",
                 "session_id": self.session_id,
                 "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
