@@ -40,6 +40,11 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
+if __package__:
+    from ._version import __version__
+else:
+    from _version import __version__  # type: ignore[no-redef]
+
 try:
     import yaml
 except ImportError as e:
@@ -530,7 +535,7 @@ class IncidentLogger:
         report = {
             "incident_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.6",
+                "generator": f"Agent Warden v{__version__}",
                 "session_id": self.session_id,
                 "status": control_status,
             },
@@ -599,7 +604,7 @@ class IncidentLogger:
         report = {
             "halt_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.6",
+                "generator": f"Agent Warden v{__version__}",
                 "session_id": self.session_id,
                 "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
@@ -3586,7 +3591,7 @@ async def main():
         ),
         epilog=(
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
-            "attempts. There is no audit-only or confirm mode in 0.1.5."
+            f"attempts. There is no audit-only or confirm mode in {__version__}."
         ),
     )
     parser.add_argument('--scope', required=True, help='Path to scope YAML')

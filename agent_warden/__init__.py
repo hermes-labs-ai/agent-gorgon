@@ -5,8 +5,7 @@ from __future__ import annotations
 from importlib import import_module
 from types import ModuleType
 
-
-__version__ = "0.1.6"
+from ._version import __version__ as __version__
 
 __all__ = [
     "warden",
