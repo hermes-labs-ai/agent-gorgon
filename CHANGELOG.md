@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub repository renamed `agent-warden` -> `agent-gorgon` to match the PyPI
   distribution name. Imports (`agent_warden`) and the `agent-warden` /
   `agent-warden-forensic` CLIs are unchanged. First release published to PyPI.
+- The unpublished `suy-sideguy` compatibility candidate now matches
+  `agent-gorgon==0.1.6`; the earlier 0.1.5 target had no satisfiable
+  `agent-gorgon==0.1.5` release.
 
 ## [0.1.5] - 2026-07-20
 

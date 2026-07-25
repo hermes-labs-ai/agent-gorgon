@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in agent-warden
+description: Report a bug in agent-gorgon
 labels: ["bug"]
 body:
   - type: textarea
@@ -22,8 +22,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: agent-warden Version
-      description: "Output of `pip show agent-warden | grep Version`"
+      label: Agent Warden Version
+      description: "Output of `pip show agent-gorgon | grep Version`"
       placeholder: "0.1.0"
     validations:
       required: true

@@ -29,16 +29,18 @@ cannot establish which process performed the deletion.
 Install the canonical distribution from PyPI (published as `agent-gorgon` — the `agent-warden` name is unavailable on PyPI):
 
 ```bash
-pip install agent-gorgon==0.1.5
+pip install agent-gorgon==0.1.6
 ```
 
-Existing `suy-sideguy` users can upgrade through the 0.1.5 compatibility release:
+A matching `suy-sideguy` 0.1.6 compatibility candidate is prepared for a separate gated
+release; it is not published by the canonical package workflow. After that shim release is
+verified on PyPI:
 
 ```bash
-pip install --upgrade suy-sideguy==0.1.5
+pip install --upgrade suy-sideguy==0.1.6
 ```
 
-The 0.1.5 compatibility release installs the matching `agent-warden` distribution and temporarily forwards the
+The 0.1.6 compatibility candidate installs the matching `agent-gorgon` distribution and temporarily forwards the
 legacy `suy_sideguy` imports and `suy-*` commands with deprecation warnings.
 
 Python 3.9+.
@@ -111,7 +113,7 @@ defense-in-depth setup.
 Install from PyPI:
 
 ```bash
-pip install agent-gorgon==0.1.5
+pip install agent-gorgon==0.1.6
 ```
 
 For contributor development from a source checkout:
@@ -182,7 +184,7 @@ Tip: treat these as security artifacts. Protect access and define retention/rota
 
 ## Recommended rollout strategy
 
-Agent Warden 0.1.5 has no audit-only or confirm mode. Deterministic HALT/KILL rules are active when
+Agent Warden 0.1.6 has no audit-only or confirm mode. Deterministic HALT/KILL rules are active when
 the warden runs. Start against a disposable process and reviewed low-disruption scope, use
 `--no-llm` for a deterministic no-advisory trial, and deploy against important workloads only after
 validating hard invariants and OS visibility.
@@ -240,7 +242,7 @@ Early flag noise is normal during policy calibration on real workloads.
 - Treat early `FLAG` events as calibration data, not immediate defects.
 - Flags do not auto-kill by default. `WARDEN_KILL_ON_FLAGS=1` explicitly enables accumulation kills using `flag_threshold` and `flag_window`.
 - Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop decisions.
-- There is no audit-only switch in 0.1.5; trial the warden only against a disposable target until its deterministic controls are validated.
+- There is no audit-only switch in 0.1.6; trial the warden only against a disposable target until its deterministic controls are validated.
 
 ---
 
@@ -253,7 +255,8 @@ _Current status based on repository checks and CI configuration; not a formal se
 - ✅ Tests in repo (`pytest`)
 - ✅ Package buildable (`python -m build`)
 - ✅ CI workflow (`.github/workflows/ci.yml`)
-- ✅ Publish workflow (`.github/workflows/publish.yml`)
+- ✅ Publish workflow and PyPI Trusted Publisher are configured; end-to-end publication
+  awaits the next separately approved release.
 - ✅ Security disclosure policy (`SECURITY.md`)
 
 If agent-gorgon saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-gorgon) — it helps others find it.
