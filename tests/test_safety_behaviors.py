@@ -181,6 +181,7 @@ def test_audit_only_run_records_kill_verdict_without_signaling(monkeypatch, tmp_
     assert [verdict.verdict for verdict in w.all_verdicts] == [Verdict.KILL]
     evidence = w.logger.action_log_path.read_text(encoding="utf-8")
     assert '"verdict": "KILL"' in evidence
+    assert '"control_mode": "audit_only"' in evidence
 
 
 def test_custom_log_dir_contains_runtime_and_evidence_logs(tmp_path):

@@ -478,14 +478,17 @@ class IncidentLogger:
             f"{self._report_sequence:06d}.json"
         )
         
-    def log_action(self, verdict: WardenVerdict):
+    def log_action(
+        self, verdict: WardenVerdict, *, control_mode: str = "active"
+    ):
         entry = {
             "timestamp": verdict.timestamp,
             "verdict": verdict.verdict.value,
             "reason": verdict.reason,
             "evaluator": verdict.evaluator,
             "confidence": verdict.confidence,
-            "action": verdict.action.to_dict()
+            "control_mode": control_mode,
+            "action": verdict.action.to_dict(),
         }
         with open(self.action_log_path, 'a') as f:
             f.write(json.dumps(entry) + "\n")
@@ -3205,7 +3208,10 @@ class Warden:
         # authority. Persist completed results in the same JSONL evidence stream,
         # clearly labeled by evaluator, instead of losing them on process exit.
         try:
-            self.logger.log_action(persisted)
+            self.logger.log_action(
+                persisted,
+                control_mode="audit_only" if self.audit_only else "active",
+            )
         except Exception as e:  # noqa: BLE001 — evidence failure must be visible
             self.log.error(f"Advisory evidence persistence failed: {e}")
         if verdict == Verdict.FLAG:
@@ -3505,7 +3511,10 @@ class Warden:
                     if not v:
                         continue
                     self.all_verdicts.append(v)
-                    self.logger.log_action(v)
+                    self.logger.log_action(
+                        v,
+                        control_mode="audit_only" if self.audit_only else "active",
+                    )
                     if v.verdict == Verdict.KILL:
                         await self.execute_kill(v)
                         break
@@ -3533,7 +3542,10 @@ class Warden:
                         self.action_timestamps.append(time.time())
                     verdict = await self.evaluate_action(action)
                     self.all_verdicts.append(verdict)
-                    self.logger.log_action(verdict)
+                    self.logger.log_action(
+                        verdict,
+                        control_mode="audit_only" if self.audit_only else "active",
+                    )
                     
                     if verdict.verdict == Verdict.SAFE:
                         self.log.debug(f"✅ {action.action_type.value}: {action.target[:60]}")

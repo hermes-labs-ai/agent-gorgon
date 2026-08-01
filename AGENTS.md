@@ -24,6 +24,9 @@ agent-warden-forensic --last-hours 24
 pytest -q
 ```
 
+`--audit-only` is an unreleased source candidate and requires the editable install above; it is not
+part of the published PyPI 0.1.6 package.
+
 ## Output shape
 
 - the warden emits runtime verdicts and records attempted control outcomes
