@@ -51,6 +51,12 @@ Python 3.9+.
 agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm
 ```
 
+For a first calibration run that records the same verdicts without sending SIGSTOP or SIGKILL:
+
+```bash
+agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm --audit-only
+```
+
 `examples/` is part of the repository, not the installed wheel. From a wheel-only install, copy and
 review an example scope from the repository or supply your own scope file before running the command.
 
@@ -184,10 +190,10 @@ Tip: treat these as security artifacts. Protect access and define retention/rota
 
 ## Recommended rollout strategy
 
-Agent Warden 0.1.6 has no audit-only or confirm mode. Deterministic HALT/KILL rules are active when
-the warden runs. Start against a disposable process and reviewed low-disruption scope, use
-`--no-llm` for a deterministic no-advisory trial, and deploy against important workloads only after
-validating hard invariants and OS visibility.
+Start with `--audit-only` against a disposable process and reviewed low-disruption scope. Add
+`--no-llm` for a deterministic no-advisory trial. Audit-only mode records verdicts but does not send
+SIGSTOP or SIGKILL. Remove `--audit-only` only after validating hard invariants and OS visibility;
+there is still no interactive confirmation mode once active controls are enabled.
 
 ---
 

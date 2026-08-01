@@ -107,6 +107,82 @@ def test_execute_kill_path_without_real_kill(monkeypatch, tmp_path):
     assert incidents, "incident report should be generated"
 
 
+def test_audit_only_kill_verdict_never_calls_killswitch(monkeypatch, tmp_path):
+    w = Warden(
+        scope_path=_scope_file(),
+        agent_pid=os.getpid(),
+        log_dir=str(tmp_path / "logs"),
+        audit_only=True,
+    )
+    verdict = _flag_verdict()
+    verdict.verdict = Verdict.KILL
+    verdict.reason = "audit-only kill probe"
+
+    def fail_if_called():
+        raise AssertionError("audit-only mode must not call kill_agent")
+
+    monkeypatch.setattr(w.killswitch, "kill_agent", fail_if_called)
+
+    asyncio.run(w.execute_kill(verdict))
+
+    assert w.killed is False
+    assert w.pending_kill is None
+
+
+def test_audit_only_halt_verdict_never_calls_killswitch(monkeypatch, tmp_path):
+    w = Warden(
+        scope_path=_scope_file(),
+        agent_pid=os.getpid(),
+        log_dir=str(tmp_path / "logs"),
+        audit_only=True,
+    )
+    verdict = _flag_verdict()
+    verdict.verdict = Verdict.HALT
+    verdict.reason = "audit-only halt probe"
+
+    def fail_if_called():
+        raise AssertionError("audit-only mode must not call suspend_agent")
+
+    monkeypatch.setattr(w.killswitch, "suspend_agent", fail_if_called)
+
+    asyncio.run(w.execute_halt(verdict))
+
+    assert w.suspended is False
+    assert w.pending_halt is None
+
+
+def test_audit_only_run_records_kill_verdict_without_signaling(monkeypatch, tmp_path):
+    w = Warden(
+        scope_path=_scope_file(),
+        agent_pid=os.getpid(),
+        poll_interval=0,
+        log_dir=str(tmp_path / "logs"),
+        enable_llm=False,
+        audit_only=True,
+    )
+    action = AgentAction(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        action_type=ActionType.FILE_READ,
+        target="/tmp/secret/token.txt",
+        source_pid=os.getpid(),
+    )
+    alive = iter((True, False))
+    monkeypatch.setattr(w.observer, "is_agent_alive", lambda: next(alive))
+    monkeypatch.setattr(w.observer, "observe", lambda: [action])
+
+    def fail_if_called():
+        raise AssertionError("audit-only run must not call kill_agent")
+
+    monkeypatch.setattr(w.killswitch, "kill_agent", fail_if_called)
+
+    asyncio.run(w.run())
+
+    assert w.killed is False
+    assert [verdict.verdict for verdict in w.all_verdicts] == [Verdict.KILL]
+    evidence = w.logger.action_log_path.read_text(encoding="utf-8")
+    assert '"verdict": "KILL"' in evidence
+
+
 def test_custom_log_dir_contains_runtime_and_evidence_logs(tmp_path):
     custom = tmp_path / "private-evidence"
     w = Warden(scope_path=_scope_file(), agent_pid=os.getpid(), log_dir=str(custom))
@@ -270,7 +346,8 @@ def test_direct_warden_script_help_uses_runtime_version_identity():
     )
 
     assert result.returncode == 0, result.stderr
-    assert f"no audit-only or confirm mode in {__version__}" in result.stdout
+    assert "--audit-only" in result.stdout
+    assert f"audit-only mode in {__version__}" in result.stdout
 
 
 def test_rate_limit_flags_not_kills_when_exceeded(monkeypatch):

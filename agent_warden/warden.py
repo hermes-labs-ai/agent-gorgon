@@ -1231,7 +1231,8 @@ class Warden:
                  poll_interval: float = 0.5,
                  model: str = "qwen3:4b",
                  log_dir: str | None = None,
-                 enable_llm: bool = True):
+                 enable_llm: bool = True,
+                 audit_only: bool = False):
 
         self.scope = Scope(scope_path)
         self.observer = ProcessObserver(agent_pid, scope=self.scope)
@@ -1242,6 +1243,7 @@ class Warden:
         self.agent_pid = agent_pid
         self.poll_interval = poll_interval
         self.enable_llm = enable_llm
+        self.audit_only = audit_only
         
         self.all_verdicts: list = []
         self.flag_timestamps: list = []
@@ -3237,6 +3239,12 @@ class Warden:
         HALT reconciles the visible process tree before treating the prior pause
         as still active. Failed one-shot attempts remain pending for run-loop
         retry without duplicating their report."""
+        if self.audit_only:
+            self.pending_halt = None
+            self.suspended = False
+            self.log.warning(f"🟡 AUDIT ONLY, would HALT: {verdict.reason}")
+            return
+
         if not retry:
             self._halt_episode_report_path = None
             self._halt_episode_attempts = []
@@ -3315,6 +3323,13 @@ class Warden:
     async def execute_kill(self, verdict: WardenVerdict, *, retry: bool = False):
         """Attempt termination; rollback/report exactly once per kill episode."""
         self.pending_halt = None
+        if self.audit_only:
+            self.pending_kill = None
+            self.killed = False
+            self.kill_target_already_gone = False
+            self.log.critical(f"🔴 AUDIT ONLY, would KILL: {verdict.reason}")
+            return
+
         if not retry:
             self._kill_episode_report_path = None
             self._kill_episode_rollback = None
@@ -3423,6 +3438,11 @@ class Warden:
         self.log.info(f"   PID: {self.agent_pid}")
         self.log.info(f"   Poll: {self.poll_interval}s")
         self.log.info(f"   Agent: {self.scope.config.get('agent', {}).get('name', 'unknown')}")
+        self.log.info(
+            "   Control: audit-only (SIGSTOP/SIGKILL disabled)"
+            if self.audit_only
+            else "   Control: active"
+        )
         
         if self.enable_llm:
             await self.judge.check_available()
@@ -3591,7 +3611,8 @@ async def main():
         ),
         epilog=(
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
-            f"attempts. There is no audit-only or confirm mode in {__version__}."
+            f"attempts. Use audit-only mode in {__version__} with --audit-only to record "
+            "verdicts without sending SIGSTOP or SIGKILL."
         ),
     )
     parser.add_argument('--scope', required=True, help='Path to scope YAML')
@@ -3604,6 +3625,10 @@ async def main():
     parser.add_argument(
         '--no-llm', action='store_true',
         help='Disable the localhost Ollama probe and advisory calls',
+    )
+    parser.add_argument(
+        '--audit-only', action='store_true',
+        help='Record verdicts without sending SIGSTOP or SIGKILL',
     )
     parser.add_argument(
         '--poll', type=float, default=0.5,
@@ -3640,6 +3665,7 @@ async def main():
         model=args.model,
         log_dir=args.log_dir,
         enable_llm=not args.no_llm,
+        audit_only=args.audit_only,
     )
     if args.verbose:
         warden.log.setLevel(logging.DEBUG)
