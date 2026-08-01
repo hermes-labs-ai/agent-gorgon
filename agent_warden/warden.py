@@ -3564,7 +3564,8 @@ class Warden:
                         await self.execute_halt(verdict)
                     elif verdict.verdict == Verdict.KILL:
                         await self.execute_kill(verdict)
-                        break
+                        if not self.audit_only:
+                            break
                 
                 if self.killed:
                     break

@@ -184,6 +184,46 @@ def test_audit_only_run_records_kill_verdict_without_signaling(monkeypatch, tmp_
     assert '"control_mode": "audit_only"' in evidence
 
 
+def test_audit_only_run_keeps_later_observations_from_same_poll(monkeypatch, tmp_path):
+    w = Warden(
+        scope_path=_scope_file(),
+        agent_pid=os.getpid(),
+        poll_interval=0,
+        log_dir=str(tmp_path / "logs"),
+        enable_llm=False,
+        audit_only=True,
+    )
+    actions = [
+        AgentAction(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            action_type=ActionType.FILE_READ,
+            target="/tmp/secret/token.txt",
+            source_pid=os.getpid(),
+        ),
+        AgentAction(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            action_type=ActionType.PROCESS_EXEC,
+            target="echo calibration-continues",
+            source_pid=os.getpid(),
+        ),
+    ]
+    alive = iter((True, False))
+    monkeypatch.setattr(w.observer, "is_agent_alive", lambda: next(alive))
+    monkeypatch.setattr(w.observer, "observe", lambda: actions)
+
+    def fail_if_called():
+        raise AssertionError("audit-only mode must not call kill_agent")
+
+    monkeypatch.setattr(w.killswitch, "kill_agent", fail_if_called)
+
+    asyncio.run(w.run())
+
+    assert len(w.all_verdicts) == 2
+    evidence_lines = w.logger.action_log_path.read_text(encoding="utf-8").splitlines()
+    assert len(evidence_lines) == 2
+    assert all('"control_mode": "audit_only"' in line for line in evidence_lines)
+
+
 def test_custom_log_dir_contains_runtime_and_evidence_logs(tmp_path):
     custom = tmp_path / "private-evidence"
     w = Warden(scope_path=_scope_file(), agent_pid=os.getpid(), log_dir=str(custom))
