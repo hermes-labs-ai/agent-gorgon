@@ -32,6 +32,14 @@ Install the canonical distribution from PyPI (published as `agent-gorgon` — th
 pip install agent-gorgon==0.1.6
 ```
 
+PyPI 0.1.6 does not include the `--audit-only` flag documented below. That flag is an
+unreleased source candidate in this branch; use an editable source install to evaluate it before
+any separately approved release:
+
+```bash
+pip install -e .
+```
+
 A matching `suy-sideguy` 0.1.6 compatibility candidate is prepared for a separate gated
 release; it is not published by the canonical package workflow. After that shim release is
 verified on PyPI:
@@ -49,6 +57,12 @@ Python 3.9+.
 
 ```bash
 agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm
+```
+
+For a first calibration run that records the same verdicts without sending SIGSTOP or SIGKILL:
+
+```bash
+agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm --audit-only
 ```
 
 `examples/` is part of the repository, not the installed wheel. From a wheel-only install, copy and
@@ -184,10 +198,11 @@ Tip: treat these as security artifacts. Protect access and define retention/rota
 
 ## Recommended rollout strategy
 
-Agent Warden 0.1.6 has no audit-only or confirm mode. Deterministic HALT/KILL rules are active when
-the warden runs. Start against a disposable process and reviewed low-disruption scope, use
-`--no-llm` for a deterministic no-advisory trial, and deploy against important workloads only after
-validating hard invariants and OS visibility.
+From an editable source install, start with `--audit-only` against a disposable process and a
+reviewed low-disruption scope. Add
+`--no-llm` for a deterministic no-advisory trial. Audit-only mode records verdicts but does not send
+SIGSTOP or SIGKILL. Remove `--audit-only` only after validating hard invariants and OS visibility;
+there is still no interactive confirmation mode once active controls are enabled.
 
 ---
 
@@ -242,7 +257,7 @@ Early flag noise is normal during policy calibration on real workloads.
 - Treat early `FLAG` events as calibration data, not immediate defects.
 - Flags do not auto-kill by default. `WARDEN_KILL_ON_FLAGS=1` explicitly enables accumulation kills using `flag_threshold` and `flag_window`.
 - Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop decisions.
-- There is no audit-only switch in 0.1.6; trial the warden only against a disposable target until its deterministic controls are validated.
+- PyPI 0.1.6 has no audit-only switch. The unreleased source candidate adds it for disposable-target calibration; active controls remain the 0.1.6 behavior.
 
 ---
 

@@ -107,6 +107,19 @@ def gather(inp: Inputs) -> dict[str, Any]:
         if f.exists():
             evidence.append({"path": str(f), "sha256": file_sha256(f)})
 
+    kill_actions = [
+        action
+        for action in actions
+        if action.get("verdict") == "KILL"
+        and action.get("control_mode", "active") != "audit_only"
+    ]
+    would_kill_actions = [
+        action
+        for action in actions
+        if action.get("verdict") == "KILL"
+        and action.get("control_mode") == "audit_only"
+    ]
+
     return {
         "window_hours": inp.last_hours,
         "since": since.isoformat(),
@@ -115,10 +128,12 @@ def gather(inp: Inputs) -> dict[str, Any]:
             "warden_incidents": len(incidents),
             "canary_audit_events": len(canary_rows),
             "canary_alerts": len(canary_alert_rows),
-            "warden_kill_events": sum(1 for a in actions if (a.get("verdict") == "KILL")),
+            "warden_kill_events": len(kill_actions),
+            "warden_would_kill_events": len(would_kill_actions),
         },
         "highlights": {
-            "recent_kill_reasons": [a.get("reason") for a in actions if a.get("verdict") == "KILL"][:10],
+            "recent_kill_reasons": [a.get("reason") for a in kill_actions[:10]],
+            "recent_would_kill_reasons": [a.get("reason") for a in would_kill_actions[:10]],
             "recent_canary_blocks": [r.get("summary") for r in canary_rows if r.get("safe") is False][:10],
         },
         "evidence_manifest": evidence,
