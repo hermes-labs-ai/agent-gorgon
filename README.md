@@ -35,6 +35,9 @@ agent-warden --help
 Requires Python 3.9+. PyPI 0.1.6 has active controls and does not include `--audit-only`; review a
 scope against a disposable target before using that release.
 
+Support boundary: CI exercises Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or
+Python 3.13+ is currently `UNEVALUATED`; active controls and command reduction are POSIX-oriented.
+
 ## Safe first run from current source
 
 Current `main` includes the unreleased, non-signaling `--audit-only` candidate. This POSIX example
