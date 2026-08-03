@@ -1,6 +1,8 @@
-# agent-warden
+# agent-gorgon
 
-agent-warden is a best-effort user-space polling guard for autonomous agent processes.
+agent-gorgon is the PyPI distribution and repository for Agent Warden, a best-effort user-space
+polling guard for autonomous agent processes. The installed commands are `agent-warden` and
+`agent-warden-forensic`.
 
 Use this repo when you need to:
 - observe available process, file, and network signals after an agent starts
@@ -8,7 +10,8 @@ Use this repo when you need to:
 - generate forensic evidence after a policy incident
 
 Primary commands:
-- `agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
+- Current source only, non-signaling calibration: `agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5 --no-llm --audit-only`
+- Public `agent-gorgon==0.1.6`, active controls: `agent-warden --scope scope.yaml --agent-pid 12345 --poll 0.5 --no-llm`
 - `agent-warden-forensic --last-hours 24`
 
 Outputs:

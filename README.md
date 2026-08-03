@@ -1,82 +1,71 @@
 # agent-gorgon
 
-agent-gorgon (formerly agent-warden) is a user-space runtime policy guard for autonomous AI agents. It polls a live
-process tree, applies deterministic policy to attributed observations, and records control attempts
-and forensic evidence.
+**A best-effort runtime policy guard for autonomous AI agents.** agent-gorgon watches the process
+tree, file activity, and network connections visible from user space; applies deterministic policy;
+attempts SIGSTOP or SIGKILL for configured triggers; and preserves forensic evidence of what it
+observed and attempted.
 
-**Detect high-risk runtime observations and attempt SIGSTOP or SIGKILL controls.** Agent Warden is a
-polling monitor, not pre-execution interposition: an action may already have started or completed
-before it is observed.
+> Public release: `agent-gorgon==0.1.6` on PyPI. The package installs the established
+> `agent-warden` and `agent-warden-forensic` commands. Current `main` also contains an unreleased
+> `--audit-only` mode for non-signaling calibration.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/agent-gorgon)](https://pypi.org/project/agent-gorgon/)
+[![Python versions](https://img.shields.io/pypi/pyversions/agent-gorgon)](https://pypi.org/project/agent-gorgon/)
 
-If 40 files disappear between snapshots, Agent Warden records 40 unattributed delete observations.
-It does not suspend the monitored process from those observations alone because a directory diff
-cannot establish which process performed the deletion.
-
-## Pain
+## Why use it
 
 - Logs alone cannot pause a process after a high-risk observation.
-- An inline LLM judge does not provide process-tree, file, or network visibility and is not given
-  stop authority here.
-- Name-based targeting can select the wrong process; exact PID targeting is the safer boundary.
-- A policy file needs an active observer and explicit control outcomes to become operational
-  evidence rather than documentation alone.
+- A policy file by itself does not observe a live process or record whether a control attempt worked.
+- An inline LLM judge does not provide process-tree, file, or network visibility. Here, the optional
+  local judge is advisory-only; deterministic rules retain exclusive HALT/KILL authority.
+- A runtime incident needs evidence that separates a verdict from the attempted and observed
+  control outcome.
 
 ## Install
 
-Install the canonical distribution from PyPI (published as `agent-gorgon` — the `agent-warden` name is unavailable on PyPI):
+The canonical distribution is `agent-gorgon`; the command remains `agent-warden`:
 
 ```bash
 pip install agent-gorgon==0.1.6
+agent-warden --help
 ```
 
-PyPI 0.1.6 does not include the `--audit-only` flag documented below. That flag is an
-unreleased source candidate in this branch; use an editable source install to evaluate it before
-any separately approved release:
+Requires Python 3.9+. PyPI 0.1.6 has active controls and does not include `--audit-only`; review a
+scope against a disposable target before using that release.
+
+## Safe first run from current source
+
+Current `main` includes the unreleased, non-signaling `--audit-only` candidate. This POSIX example
+monitors a disposable three-second process, disables the optional localhost Ollama advisory, and
+exits when the target exits:
 
 ```bash
+git clone https://github.com/hermes-labs-ai/agent-gorgon.git
+cd agent-gorgon
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
+sleep 3 & TARGET_PID=$!
+agent-warden \
+  --scope examples/scope.low-disruption.yaml \
+  --agent-pid "$TARGET_PID" \
+  --poll 0.2 \
+  --no-llm \
+  --audit-only
 ```
 
-A matching `suy-sideguy` 0.1.6 compatibility candidate is prepared for a separate gated
-release; it is not published by the canonical package workflow. After that shim release is
-verified on PyPI:
-
-```bash
-pip install --upgrade suy-sideguy==0.1.6
-```
-
-The 0.1.6 compatibility candidate installs the matching `agent-gorgon` distribution and temporarily forwards the
-legacy `suy_sideguy` imports and `suy-*` commands with deprecation warnings.
-
-Python 3.9+.
-
-## Quick start
-
-```bash
-agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm
-```
-
-For a first calibration run that records the same verdicts without sending SIGSTOP or SIGKILL:
-
-```bash
-agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm --audit-only
-```
-
-`examples/` is part of the repository, not the installed wheel. From a wheel-only install, copy and
-review an example scope from the repository or supply your own scope file before running the command.
-
-Representative local log lines while the agent runs (SAFE lines require `--verbose`):
+The startup output should identify the exact PID and make both boundaries explicit:
 
 ```text
-🛡️  Agent Warden active
-⚠️  FLAG [1/12]: process_exec: unknown-command
-🟡 HALT: Suspicious process spawned: curl
+Control: audit-only (SIGSTOP/SIGKILL disabled)
+LLM: qwen3:4b disabled (rules only)
+Agent ended. Warden shutting down.
 ```
 
-After a run:
+For an actual workload, copy and narrow one of the [example scopes](examples/), prefer an exact
+`--agent-pid`, and inspect the evidence after the target exits:
 
 ```bash
 agent-warden-forensic --last-hours 24
@@ -93,8 +82,11 @@ defense-in-depth setup.
 - Not a kernel-level sandbox. If your threat model requires kernel isolation, use a kernel sandbox.
 - Not a substitute for input-side prompt-injection defenses.
 - Not proof that any single policy file covers every workload safely. Policies need calibration on each workload.
+- Not pre-execution interposition. An action may start or finish before polling observes it.
 
-![agent-warden preview](https://raw.githubusercontent.com/hermes-labs-ai/agent-gorgon/main/assets/preview.png)
+If 40 files disappear between snapshots, agent-gorgon records 40 unattributed delete observations.
+It does not suspend the monitored process from those observations alone because a directory diff
+cannot establish which process performed the deletion.
 
 ---
 
@@ -119,59 +111,6 @@ defense-in-depth setup.
 - Signal attempts can fail or only partially cover a changing process tree; reports record the
   observed outcome. Failed HALT/KILL attempts remain retryable; retries reconcile actual process
   state and update one episode report without repeating rollback side effects
-
----
-
-## Install
-
-Install from PyPI:
-
-```bash
-pip install agent-gorgon==0.1.6
-```
-
-For contributor development from a source checkout:
-
-```bash
-git clone https://github.com/hermes-labs-ai/agent-gorgon.git
-cd agent-gorgon
-pip install -e ".[dev]"
-```
-
-Requires Python 3.9+.
-
----
-
-## 5-minute quickstart
-
-### 1) Choose target process
-Use one of:
-- `--agent-pid` (recommended for production)
-- `--agent-name` (convenient, but can match unintended processes)
-
-### 2) Start from the example policy scope
-- Open `examples/scope.openclaw.yaml`
-- For staged rollout, start with `examples/scope.low-disruption.yaml`
-- Narrow allowlists to only what your workload truly needs
-- For a generic baseline, start with `examples/scope.generic.yaml`
-
-### 3) Run the warden
-
-```bash
-# Safer targeting: PID
-agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm
-
-# Convenience targeting: process name
-agent-warden --scope examples/scope.generic.yaml --agent-name my-agent --poll 0.5 --no-llm
-```
-
-### 4) Generate report after a run
-
-```bash
-agent-warden-forensic --last-hours 24
-```
-
----
 
 ## Where logs and evidence go
 
@@ -302,6 +241,6 @@ Also see:
 
 ## Related Hermes Labs tools
 
-- [te-drift-detector](https://github.com/hermes-labs-ai/te-drift-detector) — zero-LLM drift detection for agent sessions (catch it before the warden has to act)
-- [hermes-blind](https://github.com/hermes-labs-ai/hermes-blind) — recovery scaffold that bends a drifted session back
+- [te-drift-detector](https://github.com/hermes-labs-ai/te-drift-detector) — experimental lexical feature-delta telemetry for human triage
+- [hermes-blind](https://github.com/hermes-labs-ai/hermes-blind) — context-compensation scaffold for evidence-bound LLM evaluation prompts
 - [lintlang](https://github.com/hermes-labs-ai/lintlang) — static linter for agent configs and prompts (catch it before runtime)

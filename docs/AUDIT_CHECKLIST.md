@@ -1,8 +1,9 @@
 # Agent Warden Audit Checklist
 
 Use this checklist before deploying against important workloads or enabling
-`WARDEN_KILL_ON_FLAGS=1`. Agent Warden 0.1.5 has no audit-only switch and always applies its
-deterministic HALT/KILL rules while running.
+`WARDEN_KILL_ON_FLAGS=1`. The public `agent-gorgon==0.1.6` release has no audit-only switch and
+applies deterministic HALT/KILL rules while running. Current `main` includes an unreleased
+`--audit-only` candidate for non-signaling calibration.
 
 ## A) Input Data Quality
 - [ ] `~/.local/share/sysmond/logs/actions_*.jsonl` exists and is fresh
