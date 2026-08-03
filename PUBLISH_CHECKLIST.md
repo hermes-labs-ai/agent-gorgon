@@ -1,4 +1,4 @@
-# Publish Checklist — agent-warden + suy-sideguy compatibility shim
+# Publish Checklist — agent-gorgon + suy-sideguy compatibility shim
 
 ## Pre-release essentials
 
@@ -23,16 +23,16 @@
 - [ ] `python -m pip install build`
 - [ ] `python -m build` succeeds for the repository root
 - [ ] `python -m build compat/suy-sideguy` succeeds
-- [ ] Verify `agent-warden` owns only `agent_warden` and the new entry points
+- [ ] Verify `agent-gorgon` owns only `agent_warden` and the new entry points
 - [ ] Verify `suy-sideguy` owns only `suy_sideguy` and the legacy entry points
 - [ ] Verify both wheel/sdist pairs include the Apache-2.0 license
-- [ ] Verify the shim pins the exact matching `agent-warden` version
+- [ ] Verify the shim pins the exact matching `agent-gorgon` version
 - [ ] Validate console entry points:
   - [ ] `agent-warden --help`
   - [ ] `agent-warden-forensic --help`
   - [ ] `suy-warden --help` forwards and warns
   - [ ] `suy-forensic-report --help` forwards and warns
-- [ ] In a fresh environment, install `agent-warden` from local artifacts and run new imports/CLIs
+- [ ] In a fresh environment, install `agent-gorgon` from local artifacts and run new imports/CLIs
 - [ ] In a second fresh environment, install local `suy-sideguy==0.1.4`, upgrade it to the
       local shim, and run both legacy and canonical imports/CLIs
 - [ ] Repeat the upgrade from the currently published predecessor
@@ -54,10 +54,10 @@
 
 ## Release step
 
-- [ ] Publish the canonical `agent-warden` artifact before the dependent shim artifact
-- [ ] Keep the compatibility window through `agent-warden` 0.3.x and no earlier than
+- [ ] Publish the canonical `agent-gorgon` artifact before the dependent shim artifact
+- [ ] Keep the compatibility window through Agent Warden 0.3.x and no earlier than
       2026-10-10 unless the owner records a different window
 - [ ] Commit with release-prep message
 - [ ] Replace the changelog's `Unreleased` marker with the actual release date
-- [ ] Tag release `v0.1.5`
+- [ ] Tag release `v<version>`
 - [ ] Publish release notes with known limitations

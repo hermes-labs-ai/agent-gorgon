@@ -10,7 +10,7 @@ on:
       version:
         description: "Exact canonical and shim version"
         required: true
-        default: "0.1.5"
+        default: "0.1.6"
         type: string
       confirmation:
         description: "Type: publish shim after canonical receipt verified"
@@ -47,11 +47,11 @@ jobs:
           expected = os.environ["EXPECTED_VERSION"]
           canonical = tomllib.loads(Path("pyproject.toml").read_text())
           shim = tomllib.loads(Path("compat/suy-sideguy/pyproject.toml").read_text())
-          assert canonical["project"]["name"] == "agent-warden"
+          assert canonical["project"]["name"] == "agent-gorgon"
           assert shim["project"]["name"] == "suy-sideguy"
           assert canonical["project"]["version"] == expected
           assert shim["project"]["version"] == expected
-          assert shim["project"]["dependencies"] == [f"agent-warden=={expected}"]
+          assert shim["project"]["dependencies"] == [f"agent-gorgon=={expected}"]
           PY
 
       - name: Build compatibility artifact only

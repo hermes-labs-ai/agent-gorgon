@@ -5,13 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.5] - Unreleased
+## [0.1.6] - 2026-07-22
+
+### Changed
+- GitHub repository renamed `agent-warden` -> `agent-gorgon` to match the PyPI
+  distribution name. Imports (`agent_warden`) and the `agent-warden` /
+  `agent-warden-forensic` CLIs are unchanged. First release published to PyPI.
+- The unpublished `suy-sideguy` compatibility candidate now matches
+  `agent-gorgon==0.1.6`; the earlier 0.1.5 target had no satisfiable
+  `agent-gorgon==0.1.5` release.
+
+## [0.1.5] - 2026-07-20
 
 ### Changed
 - **Agent Warden is the canonical identity** — the primary distribution is `agent-warden`,
   imports use `agent_warden`, and the CLIs are `agent-warden` and `agent-warden-forensic`.
 - **Suy Sideguy is a time-bounded compatibility shim** — `suy-sideguy==0.1.5` depends on
-  exactly `agent-warden==0.1.5`, forwards historical imports and commands, and emits
+  exactly `agent-gorgon==0.1.5` (the PyPI distribution of Agent Warden), forwards historical imports and commands, and emits
   deprecation diagnostics. The proposed default removal is Agent Warden 0.4.0, no earlier
   than 2026-10-10 and only after the owner records the release flip.
 

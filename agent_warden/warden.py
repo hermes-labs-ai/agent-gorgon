@@ -40,6 +40,11 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
+if __package__:
+    from ._version import __version__
+else:
+    from _version import __version__  # type: ignore[no-redef]
+
 try:
     import yaml
 except ImportError as e:
@@ -473,14 +478,17 @@ class IncidentLogger:
             f"{self._report_sequence:06d}.json"
         )
         
-    def log_action(self, verdict: WardenVerdict):
+    def log_action(
+        self, verdict: WardenVerdict, *, control_mode: str = "active"
+    ):
         entry = {
             "timestamp": verdict.timestamp,
             "verdict": verdict.verdict.value,
             "reason": verdict.reason,
             "evaluator": verdict.evaluator,
             "confidence": verdict.confidence,
-            "action": verdict.action.to_dict()
+            "control_mode": control_mode,
+            "action": verdict.action.to_dict(),
         }
         with open(self.action_log_path, 'a') as f:
             f.write(json.dumps(entry) + "\n")
@@ -530,7 +538,7 @@ class IncidentLogger:
         report = {
             "incident_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.5",
+                "generator": f"Agent Warden v{__version__}",
                 "session_id": self.session_id,
                 "status": control_status,
             },
@@ -599,7 +607,7 @@ class IncidentLogger:
         report = {
             "halt_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": "Agent Warden v0.1.5",
+                "generator": f"Agent Warden v{__version__}",
                 "session_id": self.session_id,
                 "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
@@ -1226,7 +1234,8 @@ class Warden:
                  poll_interval: float = 0.5,
                  model: str = "qwen3:4b",
                  log_dir: str | None = None,
-                 enable_llm: bool = True):
+                 enable_llm: bool = True,
+                 audit_only: bool = False):
 
         self.scope = Scope(scope_path)
         self.observer = ProcessObserver(agent_pid, scope=self.scope)
@@ -1237,6 +1246,7 @@ class Warden:
         self.agent_pid = agent_pid
         self.poll_interval = poll_interval
         self.enable_llm = enable_llm
+        self.audit_only = audit_only
         
         self.all_verdicts: list = []
         self.flag_timestamps: list = []
@@ -3198,7 +3208,10 @@ class Warden:
         # authority. Persist completed results in the same JSONL evidence stream,
         # clearly labeled by evaluator, instead of losing them on process exit.
         try:
-            self.logger.log_action(persisted)
+            self.logger.log_action(
+                persisted,
+                control_mode="audit_only" if self.audit_only else "active",
+            )
         except Exception as e:  # noqa: BLE001 — evidence failure must be visible
             self.log.error(f"Advisory evidence persistence failed: {e}")
         if verdict == Verdict.FLAG:
@@ -3232,6 +3245,12 @@ class Warden:
         HALT reconciles the visible process tree before treating the prior pause
         as still active. Failed one-shot attempts remain pending for run-loop
         retry without duplicating their report."""
+        if self.audit_only:
+            self.pending_halt = None
+            self.suspended = False
+            self.log.warning(f"🟡 AUDIT ONLY, would HALT: {verdict.reason}")
+            return
+
         if not retry:
             self._halt_episode_report_path = None
             self._halt_episode_attempts = []
@@ -3310,6 +3329,13 @@ class Warden:
     async def execute_kill(self, verdict: WardenVerdict, *, retry: bool = False):
         """Attempt termination; rollback/report exactly once per kill episode."""
         self.pending_halt = None
+        if self.audit_only:
+            self.pending_kill = None
+            self.killed = False
+            self.kill_target_already_gone = False
+            self.log.critical(f"🔴 AUDIT ONLY, would KILL: {verdict.reason}")
+            return
+
         if not retry:
             self._kill_episode_report_path = None
             self._kill_episode_rollback = None
@@ -3418,6 +3444,11 @@ class Warden:
         self.log.info(f"   PID: {self.agent_pid}")
         self.log.info(f"   Poll: {self.poll_interval}s")
         self.log.info(f"   Agent: {self.scope.config.get('agent', {}).get('name', 'unknown')}")
+        self.log.info(
+            "   Control: audit-only (SIGSTOP/SIGKILL disabled)"
+            if self.audit_only
+            else "   Control: active"
+        )
         
         if self.enable_llm:
             await self.judge.check_available()
@@ -3480,7 +3511,10 @@ class Warden:
                     if not v:
                         continue
                     self.all_verdicts.append(v)
-                    self.logger.log_action(v)
+                    self.logger.log_action(
+                        v,
+                        control_mode="audit_only" if self.audit_only else "active",
+                    )
                     if v.verdict == Verdict.KILL:
                         await self.execute_kill(v)
                         break
@@ -3508,7 +3542,10 @@ class Warden:
                         self.action_timestamps.append(time.time())
                     verdict = await self.evaluate_action(action)
                     self.all_verdicts.append(verdict)
-                    self.logger.log_action(verdict)
+                    self.logger.log_action(
+                        verdict,
+                        control_mode="audit_only" if self.audit_only else "active",
+                    )
                     
                     if verdict.verdict == Verdict.SAFE:
                         self.log.debug(f"✅ {action.action_type.value}: {action.target[:60]}")
@@ -3527,7 +3564,8 @@ class Warden:
                         await self.execute_halt(verdict)
                     elif verdict.verdict == Verdict.KILL:
                         await self.execute_kill(verdict)
-                        break
+                        if not self.audit_only:
+                            break
                 
                 if self.killed:
                     break
@@ -3586,7 +3624,8 @@ async def main():
         ),
         epilog=(
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
-            "attempts. There is no audit-only or confirm mode in 0.1.5."
+            f"attempts. Use audit-only mode in {__version__} with --audit-only to record "
+            "verdicts without sending SIGSTOP or SIGKILL."
         ),
     )
     parser.add_argument('--scope', required=True, help='Path to scope YAML')
@@ -3599,6 +3638,10 @@ async def main():
     parser.add_argument(
         '--no-llm', action='store_true',
         help='Disable the localhost Ollama probe and advisory calls',
+    )
+    parser.add_argument(
+        '--audit-only', action='store_true',
+        help='Record verdicts without sending SIGSTOP or SIGKILL',
     )
     parser.add_argument(
         '--poll', type=float, default=0.5,
@@ -3635,6 +3678,7 @@ async def main():
         model=args.model,
         log_dir=args.log_dir,
         enable_llm=not args.no_llm,
+        audit_only=args.audit_only,
     )
     if args.verbose:
         warden.log.setLevel(logging.DEBUG)

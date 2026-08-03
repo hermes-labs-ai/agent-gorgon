@@ -1,6 +1,6 @@
-# agent-warden
+# agent-gorgon
 
-agent-warden is a user-space runtime policy guard for autonomous AI agents. It polls a live
+agent-gorgon (formerly agent-warden) is a user-space runtime policy guard for autonomous AI agents. It polls a live
 process tree, applies deterministic policy to attributed observations, and records control attempts
 and forensic evidence.
 
@@ -9,7 +9,7 @@ polling monitor, not pre-execution interposition: an action may already have sta
 before it is observed.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
-[![CI](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-warden/actions/workflows/ci.yml)
+[![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
 
 If 40 files disappear between snapshots, Agent Warden records 40 unattributed delete observations.
 It does not suspend the monitored process from those observations alone because a directory diff
@@ -26,23 +26,29 @@ cannot establish which process performed the deletion.
 
 ## Install
 
-Agent Warden 0.1.5 is unreleased. To inspect the candidate from a source checkout:
+Install the canonical distribution from PyPI (published as `agent-gorgon` — the `agent-warden` name is unavailable on PyPI):
+
+```bash
+pip install agent-gorgon==0.1.6
+```
+
+PyPI 0.1.6 does not include the `--audit-only` flag documented below. That flag is an
+unreleased source candidate in this branch; use an editable source install to evaluate it before
+any separately approved release:
 
 ```bash
 pip install -e .
 ```
 
-After the canonical distribution is published, the install command will be
-`pip install agent-warden`.
-
-After both 0.1.5 distributions are published, existing `suy-sideguy` users can upgrade through the
-compatibility release:
+A matching `suy-sideguy` 0.1.6 compatibility candidate is prepared for a separate gated
+release; it is not published by the canonical package workflow. After that shim release is
+verified on PyPI:
 
 ```bash
-pip install --upgrade suy-sideguy
+pip install --upgrade suy-sideguy==0.1.6
 ```
 
-The 0.1.5 compatibility release installs the matching `agent-warden` distribution and temporarily forwards the
+The 0.1.6 compatibility candidate installs the matching `agent-gorgon` distribution and temporarily forwards the
 legacy `suy_sideguy` imports and `suy-*` commands with deprecation warnings.
 
 Python 3.9+.
@@ -51,6 +57,12 @@ Python 3.9+.
 
 ```bash
 agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm
+```
+
+For a first calibration run that records the same verdicts without sending SIGSTOP or SIGKILL:
+
+```bash
+agent-warden --scope examples/scope.generic.yaml --agent-pid 12345 --poll 0.5 --no-llm --audit-only
 ```
 
 `examples/` is part of the repository, not the installed wheel. From a wheel-only install, copy and
@@ -82,7 +94,7 @@ defense-in-depth setup.
 - Not a substitute for input-side prompt-injection defenses.
 - Not proof that any single policy file covers every workload safely. Policies need calibration on each workload.
 
-![agent-warden preview](https://raw.githubusercontent.com/hermes-labs-ai/agent-warden/main/assets/preview.png)
+![agent-warden preview](https://raw.githubusercontent.com/hermes-labs-ai/agent-gorgon/main/assets/preview.png)
 
 ---
 
@@ -112,18 +124,18 @@ defense-in-depth setup.
 
 ## Install
 
-Agent Warden 0.1.5 is not yet published. For candidate development:
+Install from PyPI:
 
 ```bash
-git clone https://github.com/hermes-labs-ai/agent-warden.git
-cd agent-warden
-pip install -e ".[dev]"
+pip install agent-gorgon==0.1.6
 ```
 
-After publication:
+For contributor development from a source checkout:
 
 ```bash
-pip install agent-warden
+git clone https://github.com/hermes-labs-ai/agent-gorgon.git
+cd agent-gorgon
+pip install -e ".[dev]"
 ```
 
 Requires Python 3.9+.
@@ -186,10 +198,11 @@ Tip: treat these as security artifacts. Protect access and define retention/rota
 
 ## Recommended rollout strategy
 
-Agent Warden 0.1.5 has no audit-only or confirm mode. Deterministic HALT/KILL rules are active when
-the warden runs. Start against a disposable process and reviewed low-disruption scope, use
-`--no-llm` for a deterministic no-advisory trial, and deploy against important workloads only after
-validating hard invariants and OS visibility.
+From an editable source install, start with `--audit-only` against a disposable process and a
+reviewed low-disruption scope. Add
+`--no-llm` for a deterministic no-advisory trial. Audit-only mode records verdicts but does not send
+SIGSTOP or SIGKILL. Remove `--audit-only` only after validating hard invariants and OS visibility;
+there is still no interactive confirmation mode once active controls are enabled.
 
 ---
 
@@ -244,7 +257,7 @@ Early flag noise is normal during policy calibration on real workloads.
 - Treat early `FLAG` events as calibration data, not immediate defects.
 - Flags do not auto-kill by default. `WARDEN_KILL_ON_FLAGS=1` explicitly enables accumulation kills using `flag_threshold` and `flag_window`.
 - Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop decisions.
-- There is no audit-only switch in 0.1.5; trial the warden only against a disposable target until its deterministic controls are validated.
+- PyPI 0.1.6 has no audit-only switch. The unreleased source candidate adds it for disposable-target calibration; active controls remain the 0.1.6 behavior.
 
 ---
 
@@ -257,16 +270,17 @@ _Current status based on repository checks and CI configuration; not a formal se
 - ✅ Tests in repo (`pytest`)
 - ✅ Package buildable (`python -m build`)
 - ✅ CI workflow (`.github/workflows/ci.yml`)
-- ✅ Publish workflow (`.github/workflows/publish.yml`)
+- ✅ Publish workflow and PyPI Trusted Publisher are configured; end-to-end publication
+  awaits the next separately approved release.
 - ✅ Security disclosure policy (`SECURITY.md`)
 
-If agent-warden saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-warden) — it helps others find it.
+If agent-gorgon saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-gorgon) — it helps others find it.
 
 ---
 
 ## About Hermes Labs
 
-Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. More at [hermes-labs.ai](https://hermes-labs.ai).
+Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. We call the discipline **Epistemic Engineering**. The Hermes Labs position: **the model is the substrate** — the trained system, the capability ceiling — but **language is the operations layer**: the prompts, scaffolds, evals, memory layers, and audit surfaces where deployed reliability is won or lost. agent-gorgon is part of that **linguistic infrastructure** — the runtime-enforcement layer of the stack. More at [hermes-labs.ai](https://hermes-labs.ai).
 
 ---
 

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "suy-sideguy"
-version = "0.1.5"
-description = "Temporary compatibility shim for the agent-warden package."
+version = "0.1.6"
+description = "Temporary compatibility shim for the agent-gorgon distribution."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
@@ -15,17 +15,17 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = ["agent-warden==0.1.5"]
+dependencies = ["agent-gorgon==0.1.6"]
 
 [project.scripts]
 suy-warden = "suy_sideguy._compat_cli:warden"
 suy-forensic-report = "suy_sideguy._compat_cli:forensic_report"
 
 [project.urls]
-Homepage = "https://github.com/hermes-labs-ai/agent-warden"
-Repository = "https://github.com/hermes-labs-ai/agent-warden"
-Documentation = "https://github.com/hermes-labs-ai/agent-warden#readme"
-Issues = "https://github.com/hermes-labs-ai/agent-warden/issues"
+Homepage = "https://github.com/hermes-labs-ai/agent-gorgon"
+Repository = "https://github.com/hermes-labs-ai/agent-gorgon"
+Documentation = "https://github.com/hermes-labs-ai/agent-gorgon#readme"
+Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

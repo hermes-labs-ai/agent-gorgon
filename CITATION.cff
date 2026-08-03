@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "agent-warden: runtime policy guard for autonomous AI agents"
-abstract: "agent-warden is a user-space polling guard for autonomous AI agents. It applies deterministic policy to best-effort process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution."
+title: "Agent Warden: runtime policy guard for autonomous AI agents"
+abstract: "Agent Warden is a user-space polling guard for autonomous AI agents. It applies deterministic policy to best-effort process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution."
 type: software
 authors:
   - family-names: "Bosch Rodriguez"
@@ -9,8 +9,8 @@ authors:
     orcid: "https://orcid.org/0009-0005-4896-1112"
     affiliation: "Hermes Labs"
 license: Apache-2.0
-repository-code: "https://github.com/hermes-labs-ai/agent-warden"
-version: "0.1.5"
+repository-code: "https://github.com/hermes-labs-ai/agent-gorgon"
+version: "0.1.6"
 keywords:
   - "AI reliability"
   - "agent safety"

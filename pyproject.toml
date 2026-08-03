@@ -3,8 +3,8 @@ requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-warden"
-version = "0.1.5"
+name = "agent-gorgon"
+version = "0.1.6"
 description = "Best-effort user-space polling guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.4.2",
-  "ruff>=0.15.15",
+  "ruff>=0.15.15,<0.16",
   "mypy>=1.19.1,<2",
   "types-PyYAML>=6.0.12.20250915",
 ]
@@ -42,11 +42,11 @@ agent-warden = "agent_warden.warden:entrypoint"
 agent-warden-forensic = "agent_warden.forensic_report:main"
 
 [project.urls]
-Homepage = "https://github.com/hermes-labs-ai/agent-warden"
-Repository = "https://github.com/hermes-labs-ai/agent-warden"
-Documentation = "https://github.com/hermes-labs-ai/agent-warden#readme"
-Issues = "https://github.com/hermes-labs-ai/agent-warden/issues"
-Changelog = "https://github.com/hermes-labs-ai/agent-warden/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hermes-labs-ai/agent-gorgon"
+Repository = "https://github.com/hermes-labs-ai/agent-gorgon"
+Documentation = "https://github.com/hermes-labs-ai/agent-gorgon#readme"
+Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
+Changelog = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["agent_warden"]
