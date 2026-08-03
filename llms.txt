@@ -27,4 +27,5 @@ Do not use this repo as:
 
 ## About Hermes Labs
 
-Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. More at [hermes-labs.ai](https://hermes-labs.ai).
+Hermes Labs is an AI reliability engineering studio for production agents and LLM applications.
+More at [hermes-labs.ai](https://hermes-labs.ai).
