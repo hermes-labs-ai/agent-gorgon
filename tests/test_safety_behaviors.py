@@ -373,7 +373,7 @@ def test_incident_report_schema_core_fields(tmp_path):
     assert "session_summary" in report
     assert "liability_statement" in report
     assert report["kill_trigger"]["action_type"] == ActionType.FILE_WRITE.value
-    assert report["incident_report"]["generator"] == f"Agent Warden v{__version__}"
+    assert report["incident_report"]["generator"] == f"Agent Gorgon v{__version__}"
     assert report["incident_report"]["status"] == "AGENT_TERMINATED"
 
 

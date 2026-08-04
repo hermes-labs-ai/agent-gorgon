@@ -6,8 +6,8 @@ applies deterministic HALT/KILL rules while running. Current `main` includes an 
 `--audit-only` candidate for non-signaling calibration.
 
 ## A) Input Data Quality
-- [ ] `~/.local/share/sysmond/logs/actions_*.jsonl` exists and is fresh
-- [ ] `~/.local/share/sysmond/logs/incidents/*.json` exists (if any kills)
+- [ ] `~/.local/share/agent-gorgon/logs/actions_*.jsonl` exists and is fresh
+- [ ] `~/.local/share/agent-gorgon/logs/incidents/*.json` exists (if any controls fired)
 - [ ] Any optional integration evidence is identified separately from Warden observations
 
 ## B) Signal Quality Review
@@ -32,5 +32,5 @@ applies deterministic HALT/KILL rules while running. Current `main` includes an 
 - [ ] Failed or partial SIGSTOP/SIGKILL attempts are surfaced and understood
 
 ## F) Report Output
-- [ ] `agent-warden-forensic --last-hours 24` exported and archived
+- [ ] `agent-gorgon-forensic --last-hours 24 --out <private-report-path>` exported and archived
 - [ ] Summary includes action counts, flags, incidents, control reasons, and observed outcomes

@@ -1,6 +1,6 @@
 """
-Agent Warden - Outbound Agent Security Monitor
-==============================================
+Agent Gorgon - Runtime Policy Guard
+===================================
 Polls best-effort user-space observations and can attempt to stop high-risk agent sessions.
 Runs as a separate daemon process for defense-in-depth monitoring.
 
@@ -34,6 +34,7 @@ import fnmatch
 import ipaddress
 import logging
 import argparse
+import math
 from collections.abc import Iterable
 from pathlib import Path
 from datetime import datetime, timezone
@@ -59,6 +60,30 @@ try:
     import httpx
 except ImportError as e:
     raise SystemExit("Missing dependency: httpx. Install with `pip install -e .`") from e
+
+
+def _ensure_private_directory(path: Path) -> None:
+    """Create an evidence directory and constrain existing paths to owner-only."""
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
+
+
+def _open_private_text(path: Path | str, mode: str):
+    """Open an evidence file with mode 0600, including when it already exists."""
+    target = os.fspath(path)
+    if mode == "a":
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+    elif mode == "w":
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    else:
+        raise ValueError(f"Unsupported private file mode: {mode}")
+    fd = os.open(target, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        return os.fdopen(fd, mode, encoding="utf-8")
+    except Exception:
+        os.close(fd)
+        raise
 
 
 # ════════════════════════════════════════════════════════════
@@ -144,6 +169,8 @@ class Scope:
 
         self.config = loaded
 
+        self._validate_config()
+
         self.fs = self.config.get('filesystem', {})
         self.net = self.config.get('network', {})
         self.proc = self.config.get('process', {})
@@ -163,6 +190,8 @@ class Scope:
         self.flag_threshold = self.behavior.get('flag_threshold', 5)
         self.flag_window = self.behavior.get('flag_window', 300)
         self.max_actions_per_minute = self.behavior.get('max_actions_per_minute', 60)
+        self.halt_threshold = self.behavior.get('halt_threshold', 3)
+        self.halt_window = self.behavior.get('halt_window', 10)
 
         # Fail loud on the silent-no-op scope bug: a scope that recognizes none of
         # its enforcement sections enforces NOTHING. The legacy flat schema
@@ -187,6 +216,114 @@ class Scope:
                 "enforce nothing. Check the schema (filesystem/network/process/behavior).",
                 scope_path,
             )
+
+    def _validate_config(self) -> None:
+        """Reject ambiguous scope values before they can weaken or distort policy."""
+        flat_keys = {
+            'allow_read', 'allow_write', 'deny_read', 'deny_write',
+            'deny_exec', 'allow_exec',
+        }
+        present_flat = flat_keys & set(self.config)
+        if present_flat:
+            raise ValueError(
+                "Scope uses an unrecognized flat schema "
+                f"({sorted(present_flat)}); use nested filesystem/network/process/"
+                "behavior sections"
+            )
+        section_keys = {
+            "agent": {"name", "pid"},
+            "filesystem": {
+                "allowed_paths", "forbidden_paths", "forbidden_extensions",
+            },
+            "network": {
+                "allowed_domains", "forbidden_domains", "allowed_ports",
+            },
+            "process": {"allowed_commands", "forbidden_commands"},
+            "behavior": {
+                "flag_threshold", "flag_window", "max_actions_per_minute",
+                "credential_exfil_window", "halt_threshold", "halt_window",
+            },
+        }
+        unknown_top = set(self.config) - set(section_keys)
+        if unknown_top:
+            raise ValueError(f"Unknown scope section(s): {sorted(unknown_top)}")
+
+        sections: dict[str, dict] = {}
+        for section, known_keys in section_keys.items():
+            value = self.config.get(section, {})
+            if not isinstance(value, dict):
+                raise ValueError(f"Scope '{section}' must be a mapping/object")
+            unknown = set(value) - known_keys
+            if unknown:
+                raise ValueError(
+                    f"Unknown key(s) in scope '{section}': {sorted(unknown)}"
+                )
+            sections[section] = value
+
+        for section, keys in {
+            "filesystem": (
+                "allowed_paths", "forbidden_paths", "forbidden_extensions",
+            ),
+            "network": ("allowed_domains", "forbidden_domains"),
+            "process": ("allowed_commands", "forbidden_commands"),
+        }.items():
+            for key in keys:
+                value = sections[section].get(key, [])
+                if not isinstance(value, list) or any(
+                    not isinstance(item, str) or not item.strip() for item in value
+                ):
+                    raise ValueError(
+                        f"Scope '{section}.{key}' must be a list of non-empty strings"
+                    )
+
+        ports = sections["network"].get("allowed_ports", [])
+        if not isinstance(ports, list) or any(
+            isinstance(port, bool)
+            or not isinstance(port, int)
+            or not 1 <= port <= 65535
+            for port in ports
+        ):
+            raise ValueError(
+                "Scope 'network.allowed_ports' must be a list of integer ports "
+                "from 1 through 65535"
+            )
+
+        behavior = sections["behavior"]
+        defaults = {
+            "flag_threshold": 5,
+            "flag_window": 300,
+            "max_actions_per_minute": 60,
+            "credential_exfil_window": 15,
+            "halt_threshold": 3,
+            "halt_window": 10,
+        }
+        for key, default in defaults.items():
+            value = behavior.get(key, default)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or value <= 0
+            ):
+                raise ValueError(
+                    f"Scope 'behavior.{key}' must be a positive finite number"
+                )
+        for key in ("flag_threshold", "max_actions_per_minute", "halt_threshold"):
+            value = behavior.get(key, defaults[key])
+            if not isinstance(value, int):
+                raise ValueError(f"Scope 'behavior.{key}' must be a positive integer")
+
+        agent = sections["agent"]
+        if "name" in agent and (
+            not isinstance(agent["name"], str) or not agent["name"].strip()
+        ):
+            raise ValueError("Scope 'agent.name' must be a non-empty string")
+        if "pid" in agent and agent["pid"] is not None and (
+            isinstance(agent["pid"], bool)
+            or not isinstance(agent["pid"], int)
+            or agent["pid"] <= 0
+        ):
+            raise ValueError("Scope 'agent.pid' must be null or a positive integer")
 
     def _path_matches(self, path: str, patterns: list) -> bool:
         path = os.path.expanduser(os.path.normpath(path))
@@ -459,15 +596,15 @@ class IncidentLogger:
     
     def __init__(self, log_dir: str | None = None):
         if log_dir is None:
-            log_dir = os.path.expanduser("~/.local/share/sysmond/logs")
+            log_dir = os.path.expanduser("~/.local/share/agent-gorgon/logs")
         
         self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory(self.log_dir)
         
         self.session_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self.action_log_path = self.log_dir / f"actions_{self.session_id}.jsonl"
         self.incident_dir = self.log_dir / "incidents"
-        self.incident_dir.mkdir(exist_ok=True)
+        _ensure_private_directory(self.incident_dir)
         self._report_sequence = 0
 
     def _next_report_path(self, kind: str) -> Path:
@@ -490,7 +627,7 @@ class IncidentLogger:
             "control_mode": control_mode,
             "action": verdict.action.to_dict(),
         }
-        with open(self.action_log_path, 'a') as f:
+        with _open_private_text(self.action_log_path, 'a') as f:
             f.write(json.dumps(entry) + "\n")
     
     def generate_incident_report(self, kill_verdict: WardenVerdict,
@@ -538,7 +675,7 @@ class IncidentLogger:
         report = {
             "incident_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": f"Agent Warden v{__version__}",
+                "generator": f"Agent Gorgon v{__version__}",
                 "session_id": self.session_id,
                 "status": control_status,
             },
@@ -579,7 +716,7 @@ class IncidentLogger:
             "kill_execution": kill_result,
         }
         
-        with open(report_path, 'w') as f:
+        with _open_private_text(report_path, 'w') as f:
             json.dump(report, f, indent=2)
 
         return str(report_path)
@@ -607,7 +744,7 @@ class IncidentLogger:
         report = {
             "halt_report": {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "generator": f"Agent Warden v{__version__}",
+                "generator": f"Agent Gorgon v{__version__}",
                 "session_id": self.session_id,
                 "status": "AGENT_SUSPENDED" if suspended else "SUSPENSION_FAILED",
             },
@@ -639,8 +776,8 @@ class IncidentLogger:
             "action_timeline": timeline,
             "liability_statement": {
                 "notice": (
-                    "This report was generated automatically by Agent Warden, "
-                    "an autonomous AI agent security monitor. "
+                    "This report was generated automatically by Agent Gorgon, "
+                    "a user-space runtime policy guard. "
                     + (
                         "The monitored agent was SUSPENDED (SIGSTOP) — a reversible "
                         "pause — due to a detected behavioral HALT condition."
@@ -656,7 +793,7 @@ class IncidentLogger:
             },
         }
 
-        with open(report_path, 'w') as f:
+        with _open_private_text(report_path, 'w') as f:
             json.dump(report, f, indent=2)
 
         return str(report_path)
@@ -667,10 +804,100 @@ class IncidentLogger:
 # ════════════════════════════════════════════════════════════
 
 class Killswitch:
-    """Terminates the agent and attempts rollback."""
+    """Attempts process-tree controls against a PID/create-time-bound target."""
+
+    CONTROL_CONFIRM_TIMEOUT = 1.0
     
     def __init__(self, agent_pid: int):
         self.agent_pid = agent_pid
+        self._root_create_time: float | None = None
+        self._root_was_bound = False
+        self._root_initially_missing = False
+        self._child_create_times: dict[int, float | None] = {}
+        try:
+            root = psutil.Process(agent_pid)
+            self._root_create_time = self._process_create_time(root)
+            self._root_was_bound = True
+        except psutil.NoSuchProcess:
+            self._root_initially_missing = True
+        except psutil.Error:
+            # Refuse a later signal when the target identity could not be bound.
+            pass
+
+    @staticmethod
+    def _process_create_time(proc) -> float | None:
+        create_time = getattr(proc, "create_time", None)
+        if not callable(create_time):
+            # Test doubles predating identity binding do not expose create_time.
+            # Real psutil.Process objects always do.
+            return None
+        return float(create_time())
+
+    def _bound_root(self):
+        if self._root_initially_missing:
+            raise psutil.NoSuchProcess(self.agent_pid)
+        if not self._root_was_bound:
+            raise RuntimeError(
+                f"Refusing to signal PID {self.agent_pid}: target identity was not bound"
+            )
+        proc = psutil.Process(self.agent_pid)
+        actual = self._process_create_time(proc)
+        if (
+            self._root_create_time is not None
+            and actual != self._root_create_time
+        ):
+            raise RuntimeError(
+                f"Refusing to signal PID {self.agent_pid}: PID identity changed"
+            )
+        if self._root_create_time is None and callable(
+            getattr(proc, "create_time", None)
+        ):
+            raise RuntimeError(
+                f"Refusing to signal PID {self.agent_pid}: create time is unverified"
+            )
+        return proc
+
+    def _remember_child(self, proc) -> None:
+        self._child_create_times[proc.pid] = self._process_create_time(proc)
+
+    def _bound_child(self, pid: int):
+        proc = psutil.Process(pid)
+        if pid not in self._child_create_times:
+            raise RuntimeError(
+                f"Refusing to retry PID {pid}: process identity was not recorded"
+            )
+        expected = self._child_create_times[pid]
+        actual = self._process_create_time(proc)
+        if expected is not None and actual != expected:
+            raise RuntimeError(f"Refusing to signal PID {pid}: PID identity changed")
+        if expected is None and callable(getattr(proc, "create_time", None)):
+            raise RuntimeError(f"Refusing to signal PID {pid}: create time is unverified")
+        return proc
+
+    def _kill_and_confirm(self, proc) -> None:
+        proc.kill()
+        wait = getattr(proc, "wait", None)
+        if not callable(wait):
+            return
+        try:
+            wait(timeout=self.CONTROL_CONFIRM_TIMEOUT)
+        except psutil.NoSuchProcess:
+            return
+
+    def _suspend_and_confirm(self, proc) -> None:
+        proc.suspend()
+        status = getattr(proc, "status", None)
+        if not callable(status):
+            return
+        deadline = time.monotonic() + self.CONTROL_CONFIRM_TIMEOUT
+        while time.monotonic() < deadline:
+            if status() == psutil.STATUS_STOPPED:
+                return
+            time.sleep(0.01)
+        raise psutil.TimeoutExpired(
+            self.CONTROL_CONFIRM_TIMEOUT, pid=proc.pid,
+            name="SIGSTOP confirmation",
+        )
     
     def kill_agent(self) -> dict:
         killed = False
@@ -680,12 +907,13 @@ class Killswitch:
         errors: list[str] = []
 
         try:
-            parent = psutil.Process(self.agent_pid)
+            parent = self._bound_root()
             children = parent.children(recursive=True)
 
             for child in children:
                 try:
-                    child.kill()
+                    self._remember_child(child)
+                    self._kill_and_confirm(child)
                     pids_terminated.append(child.pid)
                 except psutil.NoSuchProcess:
                     already_gone.append(child.pid)
@@ -694,7 +922,9 @@ class Killswitch:
                     errors.append(f"Child {child.pid}: {e}")
 
             try:
-                parent.kill()
+                # Re-check root identity immediately before the root signal.
+                parent = self._bound_root()
+                self._kill_and_confirm(parent)
                 pids_terminated.append(self.agent_pid)
                 killed = True
             except psutil.NoSuchProcess:
@@ -735,7 +965,8 @@ class Killswitch:
         errors: list[str] = []
         for pid in dict.fromkeys(pids):
             try:
-                psutil.Process(pid).kill()
+                proc = self._bound_child(pid)
+                self._kill_and_confirm(proc)
                 pids_terminated.append(pid)
             except psutil.NoSuchProcess:
                 # Already gone satisfies the retry for this exact PID.
@@ -762,10 +993,12 @@ class Killswitch:
         errors: list[str] = []
 
         try:
-            parent = psutil.Process(self.agent_pid)
+            parent = self._bound_root()
 
             try:
-                parent.suspend()
+                # Re-check root identity immediately before the root signal.
+                parent = self._bound_root()
+                self._suspend_and_confirm(parent)
                 pids_suspended.append(self.agent_pid)
                 suspended = True
             except psutil.NoSuchProcess:
@@ -794,7 +1027,8 @@ class Killswitch:
                 for child in pending:
                     seen_children.add(child.pid)
                     try:
-                        child.suspend()
+                        self._remember_child(child)
+                        self._suspend_and_confirm(child)
                         pids_suspended.append(child.pid)
                     except psutil.NoSuchProcess:
                         pass
@@ -814,31 +1048,17 @@ class Killswitch:
                 "errors": errors}
 
     def attempt_rollback(self, action: AgentAction) -> dict:
-        rollback = {
-            "attempted": True, "success": False,
-            "action_type": action.action_type.value, "details": ""
+        """Record the rollback boundary without mutating observed operator data."""
+        return {
+            "attempted": False,
+            "success": False,
+            "action_type": action.action_type.value,
+            "details": (
+                "No automatic rollback was attempted. User-space observations do "
+                "not prove which process authored a filesystem change; preserve "
+                "the evidence and let an operator choose recovery or quarantine."
+            ),
         }
-        
-        try:
-            if action.action_type == ActionType.FILE_WRITE:
-                path = action.target
-                if os.path.exists(path):
-                    quarantine = os.path.expanduser("~/.local/share/sysmond/quarantine")
-                    os.makedirs(quarantine, exist_ok=True)
-                    dest = os.path.join(quarantine, f"{int(time.time())}_{os.path.basename(path)}")
-                    os.rename(path, dest)
-                    rollback["success"] = True
-                    rollback["details"] = f"Quarantined: {path} -> {dest}"
-            elif action.action_type == ActionType.FILE_DELETE:
-                rollback["details"] = "Cannot rollback deletion"
-            elif action.action_type == ActionType.NETWORK_OUT:
-                rollback["details"] = "Cannot rollback network transmission"
-            else:
-                rollback["details"] = f"No rollback for {action.action_type.value}"
-        except Exception as e:
-            rollback["details"] = f"Rollback failed: {e}"
-        
-        return rollback
 
 
 # ════════════════════════════════════════════════════════════
@@ -1291,15 +1511,17 @@ class Warden:
         
         # Keep the historical default layout, but honor --log-dir for every
         # runtime artifact. A custom evidence directory must not still create or
-        # write ~/.local/share/sysmond/warden.log behind the operator's back.
+        # write the default Agent Gorgon directory behind the operator's back.
         runtime_log_dir = (
             Path(log_dir)
             if log_dir is not None
-            else Path(os.path.expanduser("~/.local/share/sysmond"))
+            else Path(os.path.expanduser("~/.local/share/agent-gorgon"))
         )
-        runtime_log_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory(runtime_log_dir)
         self.runtime_log_path = runtime_log_dir / "warden.log"
-        self.log = logging.Logger("sysmond", level=logging.INFO)
+        with _open_private_text(self.runtime_log_path, "a"):
+            pass
+        self.log = logging.Logger("agent-gorgon", level=logging.INFO)
         self.log.propagate = False
         formatter = logging.Formatter(
             "%(asctime)s [%(levelname)s] %(message)s"
@@ -2771,6 +2993,11 @@ class Warden:
         "/.aws/credentials", "/.aws/config",
         "/.ssh/", "/.gnupg/", "/.config/gcloud/",
     )
+    _SSH_CREDENTIAL_BASENAME_GLOBS = (
+        "id_rsa", "id_rsa.*", "id_ed25519", "id_ed25519.*",
+        "id_ecdsa", "id_ecdsa.*", "id_dsa", "id_dsa.*",
+        "authorized_keys", "authorized_keys2",
+    )
 
     def _is_credential_target(self, path: str) -> bool:
         """True if *path* names credential material: a scope forbidden_path, a
@@ -2903,20 +3130,23 @@ class Warden:
         """Hardcoded KILL and reversible uncertainty-HALT safety rules."""
         target = action.target
 
-        # SSH key access
+        # Hard-code only recognized SSH key/credential material. Operators who
+        # want every ~/.ssh path blocked can keep ~/.ssh/** in forbidden_paths;
+        # ordinary known_hosts/config access is not universal proof of harm.
         if action.action_type in (ActionType.FILE_READ, ActionType.FILE_WRITE):
             expanded = os.path.expanduser(os.path.abspath(target))
             ssh_dir = os.path.expanduser("~/.ssh")
-            if expanded.startswith(ssh_dir + os.sep) or expanded == ssh_dir:
-                return WardenVerdict(
-                    verdict=Verdict.KILL, reason=f"SSH directory access: {target}",
-                    action=action, evaluator="rule_engine"
-                )
-            basename = os.path.basename(target)
-            for pat in ("*id_rsa*", "*id_ed25519*"):
+            in_ssh_dir = expanded.startswith(ssh_dir + os.sep)
+            basename = os.path.basename(expanded)
+            for pat in self._SSH_CREDENTIAL_BASENAME_GLOBS:
                 if fnmatch.fnmatch(basename, pat):
                     return WardenVerdict(
-                        verdict=Verdict.KILL, reason=f"SSH key file access: {target}",
+                        verdict=Verdict.KILL,
+                        reason=(
+                            f"SSH credential material access: {target}"
+                            if in_ssh_dir
+                            else f"SSH key file access: {target}"
+                        ),
                         action=action, evaluator="rule_engine"
                     )
 
@@ -2990,15 +3220,18 @@ class Warden:
         """Behavioral HALT triggers — suspicious but not kill-worthy."""
         now = time.time()
 
-        # 3+ file deletions in 10 seconds
+        # Rapid deletion threshold/window are explicit positive scope values.
         if action.action_type == ActionType.FILE_DELETE:
             self.delete_timestamps.append(now)
-            self.delete_timestamps = [t for t in self.delete_timestamps if now - t <= 10]
-            if len(self.delete_timestamps) >= 3:
+            self.delete_timestamps = [
+                t for t in self.delete_timestamps
+                if now - t <= self.scope.halt_window
+            ]
+            if len(self.delete_timestamps) >= self.scope.halt_threshold:
                 return WardenVerdict(
                     verdict=Verdict.HALT,
                     reason=f"Rapid file deletion: {len(self.delete_timestamps)} "
-                           f"deletes in 10s",
+                           f"deletes in {self.scope.halt_window:g}s",
                     action=action, evaluator="rule_engine"
                 )
 
@@ -3320,7 +3553,7 @@ class Warden:
                 "agent; the HALT episode remains pending for retry."
             )
             report["halt_attempts"] = self._halt_episode_attempts
-            with open(report_path, 'w') as f:
+            with _open_private_text(report_path, 'w') as f:
                 json.dump(report, f, indent=2)
             self.log.warning(f"   📋 Halt report: {report_path}")
         except Exception as e:  # noqa: BLE001 — never crash the loop on reporting
@@ -3431,7 +3664,7 @@ class Warden:
                     else "SIGKILL_ATTEMPTED"
                 )
             )
-            with open(report_path, 'w') as f:
+            with _open_private_text(report_path, 'w') as f:
                 json.dump(report, f, indent=2)
             self.log.critical(f"   📋 Report: {report_path}")
         except Exception as e:  # noqa: BLE001 — enforcement retry must survive evidence I/O
@@ -3440,7 +3673,7 @@ class Warden:
     async def run(self):
         """Main monitoring loop."""
         
-        self.log.info("🛡️  Agent Warden active")
+        self.log.info("🛡️  Agent Gorgon active")
         self.log.info(f"   PID: {self.agent_pid}")
         self.log.info(f"   Poll: {self.poll_interval}s")
         self.log.info(f"   Agent: {self.scope.config.get('agent', {}).get('name', 'unknown')}")
@@ -3606,31 +3839,100 @@ class Warden:
 # CLI
 # ════════════════════════════════════════════════════════════
 
-def find_process_by_name(name: str):
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+def find_process_by_name(name: str) -> int:
+    """Resolve one exact executable/process name outside this monitor's ancestry."""
+    requested = os.path.basename(name.strip()).casefold()
+    if not requested:
+        raise ValueError("Process name must not be empty")
+
+    excluded = {os.getpid()}
+    try:
+        excluded.update(parent.pid for parent in psutil.Process(os.getpid()).parents())
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+
+    matches: list[tuple[int, str]] = []
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
         try:
-            cmdline = ' '.join(proc.info.get('cmdline', []) or [])
-            if name.lower() in cmdline.lower():
-                return proc.info['pid']
+            pid = proc.info['pid']
+            if pid in excluded:
+                continue
+            names = {
+                str(proc.info.get('name') or '').casefold(),
+                os.path.basename(str(proc.info.get('exe') or '')).casefold(),
+            }
+            cmdline = proc.info.get('cmdline') or []
+            if cmdline:
+                names.add(os.path.basename(str(cmdline[0])).casefold())
+            if requested in names:
+                display = str(proc.info.get('exe') or proc.info.get('name') or requested)
+                matches.append((pid, display))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-    return None
+    if not matches:
+        raise ValueError(f"No process has exact name/executable '{name}'")
+    if len(matches) > 1:
+        pids = ", ".join(str(pid) for pid, _display in sorted(matches))
+        raise ValueError(
+            f"Process name/executable '{name}' is ambiguous (PIDs: {pids}); "
+            "use --agent-pid"
+        )
+    return matches[0][0]
+
+
+def resolve_scope_path(value: str) -> str:
+    """Resolve the packaged low-disruption starter without requiring a clone."""
+    if value != "starter":
+        return value
+    packaged = Path(__file__).with_name("scopes") / "low-disruption.yaml"
+    if not packaged.is_file():
+        raise ValueError("Packaged starter scope is missing from this installation")
+    return str(packaged)
+
+
+def _positive_finite_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive finite number")
+    return parsed
+
+
+def _positive_pid(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer PID") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer PID")
+    return parsed
 
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Agent Warden - user-space runtime policy guard for an agent process tree",
+        description="Agent Gorgon - user-space runtime policy guard for an agent process tree",
         epilog=(
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
             "attempts. Current source builds support --audit-only to record verdicts without "
             "sending SIGSTOP or SIGKILL."
         ),
     )
-    parser.add_argument('--scope', required=True, help='Path to scope YAML')
-    parser.add_argument('--agent-pid', type=int, help='Exact agent PID (recommended)')
     parser.add_argument(
+        '--scope', required=True,
+        help="Path to scope YAML, or 'starter' for the packaged low-disruption scope",
+    )
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument(
+        '--agent-pid', type=_positive_pid, help='Exact agent PID (recommended)',
+    )
+    target.add_argument(
         '--agent-name', type=str,
-        help='Use the first process whose command line contains this text (can over-match)',
+        help=(
+            'Exact process name or executable basename; must resolve uniquely '
+            '(use --agent-pid when possible)'
+        ),
     )
     parser.add_argument('--model', default='qwen3:4b', help='Ollama model (default: qwen3:4b)')
     parser.add_argument(
@@ -3642,20 +3944,25 @@ async def main():
         help='Record verdicts without sending SIGSTOP or SIGKILL',
     )
     parser.add_argument(
-        '--poll', type=float, default=0.5,
+        '--poll', type=_positive_finite_float, default=0.5,
         help='Poll interval seconds; shorter-lived activity can still be missed (default: 0.5)',
     )
     parser.add_argument('--log-dir', type=str, help='Override log directory')
     parser.add_argument('--verbose', action='store_true', help='Show SAFE actions too')
     
     args = parser.parse_args()
+
+    try:
+        scope_path = resolve_scope_path(args.scope)
+    except ValueError as exc:
+        parser.error(str(exc))
     
     agent_pid = args.agent_pid
-    if not agent_pid and args.agent_name:
-        agent_pid = find_process_by_name(args.agent_name)
-        if not agent_pid:
-            print(f"❌ No process matching '{args.agent_name}'")
-            sys.exit(1)
+    if agent_pid is None and args.agent_name:
+        try:
+            agent_pid = find_process_by_name(args.agent_name)
+        except ValueError as exc:
+            parser.error(str(exc))
         print(f"Found: PID {agent_pid}")
     
     if not agent_pid:
@@ -3670,7 +3977,7 @@ async def main():
         sys.exit(1)
     
     warden = Warden(
-        scope_path=args.scope,
+        scope_path=scope_path,
         agent_pid=agent_pid,
         poll_interval=args.poll,
         model=args.model,

@@ -1,0 +1,54 @@
+filesystem:
+  # Starter paths are deliberately narrow. Copy this scope and replace them
+  # with the exact workspaces used by your agent before enabling controls.
+  allowed_paths:
+    - "/tmp/agent-gorgon-demo.*/**"
+  forbidden_paths:
+    - "~/.ssh/id_*"
+    - "~/.ssh/*.pem"
+    - "~/.ssh/*.key"
+    - "~/.gnupg/**"
+    - "~/.aws/credentials"
+    - "~/.config/gcloud/**"
+    - "~/.config/gh/hosts.yml"
+  forbidden_extensions:
+    - ".pem"
+    - ".key"
+    - ".p12"
+    - ".keychain"
+    - ".keychain-db"
+
+network:
+  # The built-in observer sees remote IPs, not authenticated hostnames.
+  # Add literal IPs only after confirming that they are stable and intended.
+  allowed_domains:
+    - "localhost"
+    - "127.0.0.1"
+  forbidden_domains: []
+  allowed_ports:
+    - 80
+    - 443
+    - 11434
+
+process:
+  allowed_commands:
+    - "bash"
+    - "sh"
+    - "zsh"
+    - "python3"
+    - "python"
+    - "node"
+    - "git"
+    - "sleep"
+  forbidden_commands:
+    - "ssh"
+    - "scp"
+    - "sudo"
+    - "pkill"
+    - "killall"
+    - "rm -rf /"
+
+behavior:
+  flag_threshold: 12
+  flag_window: 300
+  max_actions_per_minute: 300

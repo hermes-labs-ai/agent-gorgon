@@ -1,3 +1,3 @@
-"""Single source for Agent Warden runtime version identity."""
+"""Single source for Agent Gorgon runtime version identity."""
 
-__version__ = "0.1.6"
+__version__ = "0.1.7a1"
