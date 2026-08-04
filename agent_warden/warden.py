@@ -3142,9 +3142,7 @@ class Warden:
                 fnmatch.fnmatch(raw_basename, pat)
                 for pat in self._SSH_CREDENTIAL_BASENAME_GLOBS
             )
-            symbolic_ssh_path = target.startswith(
-                ("~/.ssh/", "$HOME/.ssh/", "${HOME}/.ssh/")
-            )
+            symbolic_ssh_path = ".ssh" in Path(os.path.normpath(target)).parts
             ssh_extension_name = any(
                 fnmatch.fnmatch(raw_basename, pat)
                 for pat in self._SSH_DIRECTORY_CREDENTIAL_GLOBS

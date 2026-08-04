@@ -239,6 +239,11 @@ def test_hard_ssh_rule_is_key_specific(tmp_path):
         action_type=ActionType.FILE_READ,
         target="$HOME/.ssh/deploy.pem",
     )
+    relative_ssh_pem = AgentAction(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        action_type=ActionType.FILE_READ,
+        target=".ssh/deploy.pem",
+    )
     assert asyncio.run(warden.evaluate_action(known_hosts)).verdict != Verdict.KILL
     assert asyncio.run(warden.evaluate_action(authorized_keys)).verdict == Verdict.KILL
     assert asyncio.run(warden.evaluate_action(pem_key)).verdict == Verdict.KILL
@@ -246,6 +251,7 @@ def test_hard_ssh_rule_is_key_specific(tmp_path):
     assert asyncio.run(warden.evaluate_action(relative_workspace_pem)).verdict != Verdict.HALT
     assert asyncio.run(warden.evaluate_action(symbolic_home_pem)).verdict == Verdict.HALT
     assert asyncio.run(warden.evaluate_action(unresolved_home_pem)).verdict == Verdict.HALT
+    assert asyncio.run(warden.evaluate_action(relative_ssh_pem)).verdict == Verdict.HALT
 
 
 def test_evidence_directories_and_files_are_owner_only(tmp_path):
