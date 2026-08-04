@@ -373,11 +373,11 @@ def test_incident_report_schema_core_fields(tmp_path):
     assert "session_summary" in report
     assert "liability_statement" in report
     assert report["kill_trigger"]["action_type"] == ActionType.FILE_WRITE.value
-    assert report["incident_report"]["generator"] == f"Agent Warden v{__version__}"
+    assert report["incident_report"]["generator"] == f"Agent Gorgon v{__version__}"
     assert report["incident_report"]["status"] == "AGENT_TERMINATED"
 
 
-def test_direct_warden_script_help_uses_runtime_version_identity():
+def test_direct_warden_script_help_describes_audit_only():
     repo_root = Path(__file__).parents[1]
     result = subprocess.run(
         [sys.executable, str(repo_root / "agent_warden" / "warden.py"), "--help"],
@@ -388,7 +388,7 @@ def test_direct_warden_script_help_uses_runtime_version_identity():
 
     assert result.returncode == 0, result.stderr
     assert "--audit-only" in result.stdout
-    assert f"audit-only mode in {__version__}" in result.stdout
+    assert "Use --audit-only to record verdicts" in result.stdout
 
 
 def test_rate_limit_flags_not_kills_when_exceeded(monkeypatch):

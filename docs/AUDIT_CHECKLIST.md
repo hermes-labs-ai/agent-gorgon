@@ -1,12 +1,12 @@
 # Agent Warden Audit Checklist
 
 Use this checklist before deploying against important workloads or enabling
-`WARDEN_KILL_ON_FLAGS=1`. Agent Warden 0.1.5 has no audit-only switch and always applies its
-deterministic HALT/KILL rules while running.
+`WARDEN_KILL_ON_FLAGS=1`. Start `agent-gorgon==0.1.7` with `--audit-only` for non-signaling
+calibration; omit it only after reviewing the policy and observed verdicts.
 
 ## A) Input Data Quality
-- [ ] `~/.local/share/sysmond/logs/actions_*.jsonl` exists and is fresh
-- [ ] `~/.local/share/sysmond/logs/incidents/*.json` exists (if any kills)
+- [ ] `~/.local/share/agent-gorgon/logs/actions_*.jsonl` exists and is fresh
+- [ ] `~/.local/share/agent-gorgon/logs/incidents/*.json` exists (if any controls fired)
 - [ ] Any optional integration evidence is identified separately from Warden observations
 
 ## B) Signal Quality Review
@@ -31,5 +31,5 @@ deterministic HALT/KILL rules while running.
 - [ ] Failed or partial SIGSTOP/SIGKILL attempts are surfaced and understood
 
 ## F) Report Output
-- [ ] `agent-warden-forensic --last-hours 24` exported and archived
+- [ ] `agent-gorgon-forensic --last-hours 24 --out <private-report-path>` exported and archived
 - [ ] Summary includes action counts, flags, incidents, control reasons, and observed outcomes

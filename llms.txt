@@ -1,6 +1,7 @@
-# agent-warden
+# agent-gorgon
 
-agent-warden is a best-effort user-space polling guard for autonomous agent processes.
+agent-gorgon is a user-space runtime policy guard for autonomous agent processes. The installed
+commands are `agent-gorgon` and `agent-gorgon-forensic`; `agent-warden` aliases remain supported.
 
 Use this repo when you need to:
 - observe available process, file, and network signals after an agent starts
@@ -8,8 +9,9 @@ Use this repo when you need to:
 - generate forensic evidence after a policy incident
 
 Primary commands:
-- `agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5`
-- `agent-warden-forensic --last-hours 24`
+- Safe calibration: `agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --no-llm --audit-only`
+- Active controls after policy review: `agent-gorgon --scope scope.yaml --agent-pid 12345 --poll 0.5 --no-llm`
+- `agent-gorgon-forensic --last-hours 24`
 
 Outputs:
 - runtime verdicts
@@ -24,4 +26,5 @@ Do not use this repo as:
 
 ## About Hermes Labs
 
-Hermes Labs is an independent AI-reliability lab building open-source tools that catch silent failure modes in production AI. More at [hermes-labs.ai](https://hermes-labs.ai).
+Hermes Labs is an AI reliability engineering studio for production agents and LLM applications.
+More at [hermes-labs.ai](https://hermes-labs.ai).

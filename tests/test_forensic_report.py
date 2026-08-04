@@ -1,7 +1,9 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from agent_warden.forensic_report import Inputs, gather, parse_ts
+import pytest
+
+from agent_warden.forensic_report import Inputs, gather, main, parse_ts
 
 
 def test_parse_ts_accepts_iso_and_zulu():
@@ -48,7 +50,7 @@ def test_gather_accepts_current_halt_reports_and_preserves_incidents(tmp_path):
     assert current_halts == {now.isoformat()}
 
 
-def test_gather_separates_active_kills_from_audit_only_would_kills(tmp_path):
+def test_gather_separates_active_controls_from_audit_only_outcomes(tmp_path):
     logs = tmp_path / "sysmond"
     logs.mkdir()
     now = datetime.now(timezone.utc).isoformat()
@@ -64,6 +66,18 @@ def test_gather_separates_active_kills_from_audit_only_would_kills(tmp_path):
             "timestamp": now,
             "verdict": "KILL",
             "reason": "audit-only would kill",
+            "control_mode": "audit_only",
+        },
+        {
+            "timestamp": now,
+            "verdict": "HALT",
+            "reason": "active halt",
+            "control_mode": "active",
+        },
+        {
+            "timestamp": now,
+            "verdict": "HALT",
+            "reason": "audit-only would halt",
             "control_mode": "audit_only",
         },
     ]
@@ -85,3 +99,103 @@ def test_gather_separates_active_kills_from_audit_only_would_kills(tmp_path):
     assert report["highlights"]["recent_would_kill_reasons"] == [
         "audit-only would kill"
     ]
+    assert report["counts"]["warden_halt_events"] == 1
+    assert report["counts"]["warden_would_halt_events"] == 1
+    assert report["highlights"]["recent_halt_reasons"] == ["active halt"]
+    assert report["highlights"]["recent_would_halt_reasons"] == [
+        "audit-only would halt"
+    ]
+
+
+def test_cli_prints_json_without_creating_an_openclaw_report(monkeypatch, tmp_path, capsys):
+    logs = tmp_path / "evidence"
+    workspace = tmp_path / "workspace"
+    logs.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "agent-gorgon-forensic",
+            "--workspace",
+            str(workspace),
+            "--sysmond-logs",
+            str(logs),
+        ],
+    )
+
+    assert main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["counts"]["warden_actions"] == 0
+    assert not (workspace / "security").exists()
+
+
+def test_cli_writes_private_report_when_out_is_explicit(monkeypatch, tmp_path, capsys):
+    logs = tmp_path / "evidence"
+    logs.mkdir()
+    out = tmp_path / "private" / "report.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "agent-gorgon-forensic",
+            "--workspace",
+            str(tmp_path / "workspace"),
+            "--sysmond-logs",
+            str(logs),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert main() == 0
+    assert capsys.readouterr().out.strip() == str(out)
+    assert out.exists()
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert out.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_cli_does_not_chmod_existing_output_directory(monkeypatch, tmp_path, capsys):
+    logs = tmp_path / "evidence"
+    logs.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    out = shared / "report.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "agent-gorgon-forensic",
+            "--workspace",
+            str(tmp_path / "workspace"),
+            "--evidence-dir",
+            str(logs),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert main() == 0
+    assert capsys.readouterr().out.strip() == str(out)
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert shared.stat().st_mode & 0o777 == 0o755
+
+
+def test_cli_rejects_output_in_world_writable_directory(monkeypatch, tmp_path):
+    logs = tmp_path / "evidence"
+    logs.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o777)
+    shared.chmod(0o777)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "agent-gorgon-forensic",
+            "--workspace",
+            str(tmp_path / "workspace"),
+            "--evidence-dir",
+            str(logs),
+            "--out",
+            str(shared / "report.json"),
+        ],
+    )
+
+    with pytest.raises(PermissionError, match="group/world-writable"):
+        main()

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-08-04
+
+### Added
+- `--audit-only` provides a non-signaling calibration path that records verdicts
+  and evidence without attempting `SIGSTOP` or `SIGKILL`.
+- A safe first-use walkthrough monitors a disposable process before users apply
+  active controls to a real agent workload.
+- `agent-gorgon` command aliases and a packaged `starter` scope make an installed
+  wheel independently usable without a repository checkout.
+
+### Changed
+- Public positioning now leads with the concrete product category, runtime
+  policy guard, while keeping user-space polling and enforcement limits explicit.
+- Package, command, release, platform-support, and source-versus-PyPI boundaries
+  are stated together so users can tell what is available in each build.
+- The PyPI workflow now tests, lints, type-checks, builds, inspects, and smoke-tests
+  the exact release artifact before requesting trusted publication.
+- Release actions are pinned to immutable commits, and the uploaded wheel is
+  handed from a read-only build job to the OIDC publishing job.
+- Runtime evidence now lives under an Agent Gorgon-owned private directory.
+- Incident handling preserves non-mutating remediation guidance instead of moving
+  files observed during a control event.
+
+### Fixed
+- CLI help no longer labels source-only `--audit-only` behavior with the wrong
+  public package version.
+- Runtime controls bind to process identity and report stop/exit only after
+  observing that outcome; ambiguous name targeting is rejected.
+- Scope types and thresholds are validated before monitoring, and built-in SSH
+  protection is narrowed to recognized private-key and credential material.
+
 ## [0.1.6] - 2026-07-22
 
 ### Changed

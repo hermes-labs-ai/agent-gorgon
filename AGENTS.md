@@ -18,14 +18,12 @@
 
 ```bash
 pip install -e ".[dev]"
-agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5
-agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5 --audit-only
-agent-warden-forensic --last-hours 24
+agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --audit-only --no-llm
+agent-gorgon-forensic --last-hours 24
 pytest -q
 ```
 
-`--audit-only` is an unreleased source candidate and requires the editable install above; it is not
-part of the published PyPI 0.1.6 package.
+The `agent-warden` and `agent-warden-forensic` commands remain compatibility aliases.
 
 ## Output shape
 

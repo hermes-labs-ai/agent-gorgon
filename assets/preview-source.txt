@@ -1,3 +1,0 @@
-$ agent-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5
-
-target=12345 verdict=SAFE action=continue

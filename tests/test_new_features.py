@@ -221,7 +221,7 @@ def test_halt_on_wget_spawn():
 
 
 def test_kill_on_ssh_key_write():
-    """Writing to ~/.ssh/ must trigger KILL."""
+    """Writing recognized SSH credential material must trigger KILL."""
     w = _warden()
     w.judge.available = False
     action = AgentAction(
@@ -232,6 +232,19 @@ def test_kill_on_ssh_key_write():
     v = asyncio.run(w.evaluate_action(action))
     assert v.verdict == Verdict.KILL
     assert "ssh" in v.reason.lower()
+
+
+def test_known_hosts_access_is_not_a_hardcoded_kill():
+    """Broad ~/.ssh blocking is an operator scope choice, not a hard invariant."""
+    w = _warden()
+    w.judge.available = False
+    action = AgentAction(
+        timestamp=_now_iso(),
+        action_type=ActionType.FILE_READ,
+        target=os.path.expanduser("~/.ssh/known_hosts"),
+    )
+    v = asyncio.run(w.evaluate_action(action))
+    assert v.verdict != Verdict.KILL
 
 
 def test_kill_on_id_rsa_access():

@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "Agent Warden: runtime policy guard for autonomous AI agents"
-abstract: "Agent Warden is a user-space polling guard for autonomous AI agents. It applies deterministic policy to best-effort process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution."
+title: "Agent Gorgon: runtime policy guard for autonomous AI agents"
+abstract: "Agent Gorgon is a user-space runtime policy guard for autonomous AI agents. It applies deterministic policy to process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution."
 type: software
 authors:
   - family-names: "Bosch Rodriguez"
@@ -10,7 +10,7 @@ authors:
     affiliation: "Hermes Labs"
 license: Apache-2.0
 repository-code: "https://github.com/hermes-labs-ai/agent-gorgon"
-version: "0.1.6"
+version: "0.1.7"
 keywords:
   - "AI reliability"
   - "agent safety"

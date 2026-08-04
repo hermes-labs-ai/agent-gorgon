@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-gorgon"
-version = "0.1.6"
-description = "Best-effort user-space polling guard with deterministic control decisions and forensic evidence."
+version = "0.1.7"
+description = "User-space runtime policy guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
@@ -38,6 +38,8 @@ dev = [
 ]
 
 [project.scripts]
+agent-gorgon = "agent_warden.warden:entrypoint"
+agent-gorgon-forensic = "agent_warden.forensic_report:main"
 agent-warden = "agent_warden.warden:entrypoint"
 agent-warden-forensic = "agent_warden.forensic_report:main"
 
@@ -49,7 +51,10 @@ Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
 Changelog = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["agent_warden"]
+packages = ["agent_warden", "agent_warden.scopes"]
+
+[tool.setuptools.package-data]
+agent_warden = ["scopes/*.yaml"]
 
 [tool.ruff]
 line-length = 100
