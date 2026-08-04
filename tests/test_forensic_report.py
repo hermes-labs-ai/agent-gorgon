@@ -149,3 +149,28 @@ def test_cli_writes_private_report_when_out_is_explicit(monkeypatch, tmp_path, c
     assert out.exists()
     assert out.stat().st_mode & 0o777 == 0o600
     assert out.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_cli_does_not_chmod_existing_output_directory(monkeypatch, tmp_path, capsys):
+    logs = tmp_path / "evidence"
+    logs.mkdir()
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    out = shared / "report.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "agent-gorgon-forensic",
+            "--workspace",
+            str(tmp_path / "workspace"),
+            "--evidence-dir",
+            str(logs),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert main() == 0
+    assert capsys.readouterr().out.strip() == str(out)
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert shared.stat().st_mode & 0o777 == 0o755

@@ -214,8 +214,14 @@ def test_hard_ssh_rule_is_key_specific(tmp_path):
         action_type=ActionType.FILE_WRITE,
         target=os.path.expanduser("~/.ssh/authorized_keys"),
     )
+    pem_key = AgentAction(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        action_type=ActionType.FILE_READ,
+        target=os.path.expanduser("~/.ssh/deploy.pem"),
+    )
     assert asyncio.run(warden.evaluate_action(known_hosts)).verdict != Verdict.KILL
     assert asyncio.run(warden.evaluate_action(authorized_keys)).verdict == Verdict.KILL
+    assert asyncio.run(warden.evaluate_action(pem_key)).verdict == Verdict.KILL
 
 
 def test_evidence_directories_and_files_are_owner_only(tmp_path):

@@ -162,8 +162,11 @@ def gather(inp: Inputs) -> dict[str, Any]:
 
 def _write_private_json(path: Path, report: dict[str, Any]) -> None:
     """Write a report without exposing sensitive evidence to other local users."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path.parent.chmod(0o700)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=False, mode=0o700)
+    except FileExistsError:
+        # Never change permissions on an operator-selected existing directory.
+        pass
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)

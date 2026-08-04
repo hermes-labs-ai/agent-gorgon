@@ -2996,6 +2996,7 @@ class Warden:
     _SSH_CREDENTIAL_BASENAME_GLOBS = (
         "id_rsa", "id_rsa.*", "id_ed25519", "id_ed25519.*",
         "id_ecdsa", "id_ecdsa.*", "id_dsa", "id_dsa.*",
+        "*.pem", "*.key", "*.p12", "*.pfx", "*.ppk",
         "authorized_keys", "authorized_keys2",
     )
 
