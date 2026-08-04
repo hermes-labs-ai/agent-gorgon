@@ -2996,8 +2996,10 @@ class Warden:
     _SSH_CREDENTIAL_BASENAME_GLOBS = (
         "id_rsa", "id_rsa.*", "id_ed25519", "id_ed25519.*",
         "id_ecdsa", "id_ecdsa.*", "id_dsa", "id_dsa.*",
-        "*.pem", "*.key", "*.p12", "*.pfx", "*.ppk",
         "authorized_keys", "authorized_keys2",
+    )
+    _SSH_DIRECTORY_CREDENTIAL_GLOBS = (
+        "*.pem", "*.key", "*.p12", "*.pfx", "*.ppk",
     )
 
     def _is_credential_target(self, path: str) -> bool:
@@ -3139,17 +3141,24 @@ class Warden:
             ssh_dir = os.path.expanduser("~/.ssh")
             in_ssh_dir = expanded.startswith(ssh_dir + os.sep)
             basename = os.path.basename(expanded)
-            for pat in self._SSH_CREDENTIAL_BASENAME_GLOBS:
-                if fnmatch.fnmatch(basename, pat):
-                    return WardenVerdict(
-                        verdict=Verdict.KILL,
-                        reason=(
-                            f"SSH credential material access: {target}"
-                            if in_ssh_dir
-                            else f"SSH key file access: {target}"
-                        ),
-                        action=action, evaluator="rule_engine"
-                    )
+            recognized_name = any(
+                fnmatch.fnmatch(basename, pat)
+                for pat in self._SSH_CREDENTIAL_BASENAME_GLOBS
+            )
+            recognized_ssh_extension = in_ssh_dir and any(
+                fnmatch.fnmatch(basename, pat)
+                for pat in self._SSH_DIRECTORY_CREDENTIAL_GLOBS
+            )
+            if recognized_name or recognized_ssh_extension:
+                return WardenVerdict(
+                    verdict=Verdict.KILL,
+                    reason=(
+                        f"SSH credential material access: {target}"
+                        if in_ssh_dir
+                        else f"SSH key file access: {target}"
+                    ),
+                    action=action, evaluator="rule_engine"
+                )
 
         # Modifying ~/.openclaw/openclaw.json
         if action.action_type == ActionType.FILE_WRITE:

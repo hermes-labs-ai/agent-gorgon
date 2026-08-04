@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -167,7 +168,21 @@ def _write_private_json(path: Path, report: dict[str, Any]) -> None:
     except FileExistsError:
         # Never change permissions on an operator-selected existing directory.
         pass
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
+    if parent_mode & 0o022:
+        raise PermissionError(
+            f"Refusing to write sensitive evidence in group/world-writable directory: "
+            f"{path.parent}"
+        )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags, 0o600)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise ValueError(f"Forensic output must be a regular file: {path}")
+    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
         handle.write("\n")
