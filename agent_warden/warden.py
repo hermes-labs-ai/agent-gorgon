@@ -3137,7 +3137,7 @@ class Warden:
         # want every ~/.ssh path blocked can keep ~/.ssh/** in forbidden_paths;
         # ordinary known_hosts/config access is not universal proof of harm.
         if action.action_type in (ActionType.FILE_READ, ActionType.FILE_WRITE):
-            expanded = os.path.abspath(os.path.expanduser(os.path.expandvars(target)))
+            expanded = os.path.abspath(os.path.expanduser(target))
             ssh_dir = os.path.expanduser("~/.ssh")
             in_ssh_dir = expanded.startswith(ssh_dir + os.sep)
             basename = os.path.basename(expanded)
