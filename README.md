@@ -1,9 +1,9 @@
 # agent-gorgon
 
-**A best-effort runtime policy guard for autonomous AI agents.** agent-gorgon watches the process
-tree, file activity, and network connections visible from user space; applies deterministic policy;
-attempts SIGSTOP or SIGKILL for configured triggers; and preserves forensic evidence of what it
-observed and attempted.
+**A runtime policy guard for autonomous AI agents.** agent-gorgon watches the process tree, file
+activity, and network connections visible from user space; applies deterministic policy; attempts
+SIGSTOP or SIGKILL for configured triggers; and preserves forensic evidence of what it observed
+and attempted.
 
 > Public release: `agent-gorgon==0.1.6` on PyPI. The package installs the established
 > `agent-warden` and `agent-warden-forensic` commands. Current `main` also contains an unreleased
@@ -76,9 +76,9 @@ agent-warden-forensic --last-hours 24
 
 ## When to use it
 
-Use `agent-warden` when you run autonomous or semi-autonomous agents and need best-effort
-userspace runtime observation, reactive process controls, and forensic evidence as one layer in a
-defense-in-depth setup.
+Use `agent-warden` when you run autonomous or semi-autonomous agents and need userspace runtime
+observation, reactive process controls, and forensic evidence as one layer in a defense-in-depth
+setup.
 
 ## When not to use it
 

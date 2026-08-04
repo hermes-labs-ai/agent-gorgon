@@ -3619,13 +3619,11 @@ def find_process_by_name(name: str):
 
 async def main():
     parser = argparse.ArgumentParser(
-        description=(
-            "Agent Warden - best-effort user-space polling guard for an agent process tree"
-        ),
+        description="Agent Warden - user-space runtime policy guard for an agent process tree",
         epilog=(
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
-            f"attempts. Use audit-only mode in {__version__} with --audit-only to record "
-            "verdicts without sending SIGSTOP or SIGKILL."
+            "attempts. Current source builds support --audit-only to record verdicts without "
+            "sending SIGSTOP or SIGKILL."
         ),
     )
     parser.add_argument('--scope', required=True, help='Path to scope YAML')
