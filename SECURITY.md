@@ -16,10 +16,9 @@ Preferred process:
 ## Operator hardening checklist
 
 Before production use:
-- The public `agent-gorgon==0.1.6` release has no audit-only mode; it evaluates deterministic
-  HALT/KILL rules and attempts their configured controls while running. Current `main` includes an
-  unreleased `--audit-only` candidate for non-signaling calibration. In either case, validate first
-  against a disposable target and reviewed low-disruption scope.
+- `agent-gorgon==0.1.7` includes `--audit-only` for non-signaling calibration. Validate against a
+  disposable target and reviewed low-disruption scope before omitting that flag to enable active
+  HALT/KILL controls.
 - Treat it as a best-effort polling guard, not a sandbox or syscall interceptor. Short-lived
   children and actions between polls can be missed.
 - HALT/KILL are signal attempts, not guaranteed outcomes. Inspect the recorded control result;

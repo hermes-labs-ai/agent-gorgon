@@ -3949,7 +3949,7 @@ async def main():
         description="Agent Gorgon - user-space runtime policy guard for an agent process tree",
         epilog=(
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
-            "attempts. Current source builds support --audit-only to record verdicts without "
+            "attempts. Use --audit-only to record verdicts without "
             "sending SIGSTOP or SIGKILL."
         ),
     )

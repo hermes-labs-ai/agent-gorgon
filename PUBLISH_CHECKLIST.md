@@ -28,6 +28,8 @@
 - [ ] Verify both wheel/sdist pairs include the Apache-2.0 license
 - [ ] Verify the shim pins the exact matching `agent-gorgon` version
 - [ ] Validate console entry points:
+  - [ ] `agent-gorgon --help`
+  - [ ] `agent-gorgon-forensic --help`
   - [ ] `agent-warden --help`
   - [ ] `agent-warden-forensic --help`
   - [ ] `suy-warden --help` forwards and warns

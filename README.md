@@ -5,8 +5,8 @@ of every control decision.** Agent Gorgon observes the process tree plus file an
 visible from user space. It can safely rehearse policy in audit-only mode, then attempt SIGSTOP or
 SIGKILL for reviewed triggers when active controls are enabled.
 
-> Published today: `agent-gorgon==0.1.6`, which has active controls but no audit-only mode. This
-> branch prepares `0.1.7a1`, including a safe calibration path and the `agent-gorgon` command.
+> Version 0.1.7 includes audit-only calibration and matching `agent-gorgon` command aliases. The
+> established `agent-warden` commands remain supported.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
@@ -30,27 +30,17 @@ The package is `agent-gorgon`. Version 0.1.7 adds matching `agent-gorgon` comman
 retaining `agent-warden` for compatibility:
 
 ```bash
-pip install agent-gorgon==0.1.6
-agent-warden --help
+pip install agent-gorgon==0.1.7
+agent-gorgon --help
 ```
 
-Requires Python 3.9+. PyPI 0.1.6 has active controls and does not include `--audit-only`; do not run
-that release against important work without first reviewing its policy and behavior.
+Requires Python 3.9+. Start with `--audit-only`; active controls are enabled only when that flag is
+omitted, after you have reviewed the policy against a disposable target.
 
 Support boundary: CI exercises Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or
 Python 3.13+ is currently `UNEVALUATED`; active controls and command reduction are POSIX-oriented.
 
 ## See it work safely
-
-Until 0.1.7 is published, install its release candidate from this source checkout:
-
-```bash
-git clone https://github.com/hermes-labs-ai/agent-gorgon.git
-cd agent-gorgon
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
 
 This POSIX demo creates a temporary command named `wget` that only runs `sleep`. Agent Gorgon sees
 the suspicious child name and records the HALT it would request, but `--audit-only` sends no signal
@@ -222,8 +212,8 @@ Early flag noise is normal during policy calibration on real workloads.
 - Treat early `FLAG` events as calibration data, not immediate defects.
 - Flags do not auto-kill by default. `WARDEN_KILL_ON_FLAGS=1` explicitly enables accumulation kills using `flag_threshold` and `flag_window`.
 - Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop decisions.
-- PyPI 0.1.6 has no audit-only switch. The 0.1.7 release candidate adds it for disposable-target
-  calibration; active controls remain explicit and opt-in through omission of `--audit-only`.
+- Version 0.1.7 includes audit-only calibration; active controls remain explicit through omission
+  of `--audit-only`.
 
 ---
 
