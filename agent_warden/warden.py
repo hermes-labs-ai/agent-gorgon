@@ -3137,7 +3137,26 @@ class Warden:
         # want every ~/.ssh path blocked can keep ~/.ssh/** in forbidden_paths;
         # ordinary known_hosts/config access is not universal proof of harm.
         if action.action_type in (ActionType.FILE_READ, ActionType.FILE_WRITE):
-            expanded = os.path.abspath(os.path.expanduser(target))
+            raw_basename = os.path.basename(target.rstrip(os.sep))
+            credential_like_name = any(
+                fnmatch.fnmatch(raw_basename, pat)
+                for pat in (
+                    *self._SSH_CREDENTIAL_BASENAME_GLOBS,
+                    *self._SSH_DIRECTORY_CREDENTIAL_GLOBS,
+                )
+            )
+            if credential_like_name and not os.path.isabs(target):
+                return WardenVerdict(
+                    verdict=Verdict.HALT,
+                    reason=(
+                        "Credential-like path is not absolute; refusing irreversible "
+                        f"classification: {target}"
+                    ),
+                    action=action,
+                    evaluator="rule_engine",
+                )
+
+            expanded = os.path.abspath(target)
             ssh_dir = os.path.expanduser("~/.ssh")
             in_ssh_dir = expanded.startswith(ssh_dir + os.sep)
             basename = os.path.basename(expanded)
