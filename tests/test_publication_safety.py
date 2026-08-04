@@ -217,7 +217,7 @@ def test_hard_ssh_rule_is_key_specific(tmp_path):
     pem_key = AgentAction(
         timestamp=datetime.now(timezone.utc).isoformat(),
         action_type=ActionType.FILE_READ,
-        target=os.path.expanduser("~/.ssh/deploy.pem"),
+        target="~/.ssh/deploy.pem",
     )
     workspace_pem = AgentAction(
         timestamp=datetime.now(timezone.utc).isoformat(),

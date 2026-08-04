@@ -200,9 +200,9 @@ there is no interactive confirmation mode once active controls are enabled.
   `` `...` `` and `$(...)` forms pause reversibly; single-quoted substitution text remains data
 
 ### KILL triggers (attempt process-tree SIGKILL after observation)
-- **Attributed private-key access** — observed read/write to recognized SSH private-key or
-  credential filenames such as `id_rsa`, `id_ed25519`, `*.pem`, or `*.key`; broad directory rules
-  belong in the operator's scope
+- **Attributed private-key access** — observed read/write to recognized SSH key names such as
+  `id_rsa` or `id_ed25519`, plus key extensions such as `*.pem` or `*.key` under `~/.ssh`; broad
+  directory rules belong in the operator's scope
 - **Attributed config write** — observed write to `~/.openclaw/openclaw.json`
 - **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a
   configured forbidden root; relative operands are resolved against the observed child cwd, and
