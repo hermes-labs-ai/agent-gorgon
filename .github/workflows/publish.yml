@@ -60,7 +60,7 @@ jobs:
           python -m pip install -e '.[dev]' build twine
           pytest -q
           ruff check .
-          mypy agent_gorgon
+          mypy agent_gorgon agent_warden
           python -m build
           python -m twine check dist/*
 
