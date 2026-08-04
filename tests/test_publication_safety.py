@@ -229,6 +229,11 @@ def test_hard_ssh_rule_is_key_specific(tmp_path):
         action_type=ActionType.FILE_READ,
         target="/tmp/safe/server.pem",
     )
+    relative_workspace_pem = AgentAction(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        action_type=ActionType.FILE_READ,
+        target="certs/server.pem",
+    )
     unresolved_home_pem = AgentAction(
         timestamp=datetime.now(timezone.utc).isoformat(),
         action_type=ActionType.FILE_READ,
@@ -238,6 +243,7 @@ def test_hard_ssh_rule_is_key_specific(tmp_path):
     assert asyncio.run(warden.evaluate_action(authorized_keys)).verdict == Verdict.KILL
     assert asyncio.run(warden.evaluate_action(pem_key)).verdict == Verdict.KILL
     assert asyncio.run(warden.evaluate_action(workspace_pem)).verdict != Verdict.KILL
+    assert asyncio.run(warden.evaluate_action(relative_workspace_pem)).verdict != Verdict.HALT
     assert asyncio.run(warden.evaluate_action(symbolic_home_pem)).verdict == Verdict.HALT
     assert asyncio.run(warden.evaluate_action(unresolved_home_pem)).verdict == Verdict.HALT
 

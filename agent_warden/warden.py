@@ -3138,14 +3138,21 @@ class Warden:
         # ordinary known_hosts/config access is not universal proof of harm.
         if action.action_type in (ActionType.FILE_READ, ActionType.FILE_WRITE):
             raw_basename = os.path.basename(target.rstrip(os.sep))
-            credential_like_name = any(
+            globally_recognized_name = any(
                 fnmatch.fnmatch(raw_basename, pat)
-                for pat in (
-                    *self._SSH_CREDENTIAL_BASENAME_GLOBS,
-                    *self._SSH_DIRECTORY_CREDENTIAL_GLOBS,
-                )
+                for pat in self._SSH_CREDENTIAL_BASENAME_GLOBS
             )
-            if credential_like_name and not os.path.isabs(target):
+            symbolic_ssh_path = target.startswith(
+                ("~/.ssh/", "$HOME/.ssh/", "${HOME}/.ssh/")
+            )
+            ssh_extension_name = any(
+                fnmatch.fnmatch(raw_basename, pat)
+                for pat in self._SSH_DIRECTORY_CREDENTIAL_GLOBS
+            )
+            ambiguous_credential_path = globally_recognized_name or (
+                symbolic_ssh_path and ssh_extension_name
+            )
+            if ambiguous_credential_path and not os.path.isabs(target):
                 return WardenVerdict(
                     verdict=Verdict.HALT,
                     reason=(
