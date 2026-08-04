@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-gorgon"
-version = "0.1.7"
+version = "0.1.8"
 description = "User-space runtime policy guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -38,10 +38,10 @@ dev = [
 ]
 
 [project.scripts]
-agent-gorgon = "agent_warden.warden:entrypoint"
-agent-gorgon-forensic = "agent_warden.forensic_report:main"
-agent-warden = "agent_warden.warden:entrypoint"
-agent-warden-forensic = "agent_warden.forensic_report:main"
+agent-gorgon = "agent_gorgon.warden:entrypoint"
+agent-gorgon-forensic = "agent_gorgon.forensic_report:main"
+agent-warden = "agent_gorgon.legacy:warden_entrypoint"
+agent-warden-forensic = "agent_gorgon.legacy:forensic_main"
 
 [project.urls]
 Homepage = "https://github.com/hermes-labs-ai/agent-gorgon"
@@ -51,7 +51,7 @@ Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
 Changelog = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["agent_warden", "agent_warden.scopes"]
+packages = ["agent_gorgon", "agent_gorgon.scopes", "agent_warden", "agent_warden.scopes"]
 
 [tool.setuptools.package-data]
 agent_warden = ["scopes/*.yaml"]
@@ -62,7 +62,7 @@ target-version = "py39"
 
 [tool.mypy]
 python_version = "3.9"
-files = ["agent_warden"]
+files = ["agent_gorgon", "agent_warden"]
 follow_imports = "skip"
 ignore_missing_imports = true
 warn_unused_ignores = true

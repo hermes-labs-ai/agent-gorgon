@@ -60,7 +60,7 @@ jobs:
           python -m pip install -e '.[dev]' build twine
           pytest -q
           ruff check .
-          mypy agent_warden
+          mypy agent_gorgon agent_warden
           python -m build
           python -m twine check dist/*
 
@@ -75,12 +75,17 @@ jobs:
           /tmp/agent-gorgon-release-smoke/bin/agent-warden --help >/dev/null
           /tmp/agent-gorgon-release-smoke/bin/agent-warden-forensic --help >/dev/null
           /tmp/agent-gorgon-release-smoke/bin/python - <<'PY'
-          import agent_warden
+          import agent_gorgon
+          from agent_gorgon.warden import Scope as CanonicalScope
           from pathlib import Path
           import tomllib
+          from agent_warden.warden import Scope as LegacyScope
 
           expected = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          assert agent_gorgon.__version__ == expected
+          import agent_warden
           assert agent_warden.__version__ == expected
+          assert CanonicalScope is LegacyScope
           PY
 
       - name: Exercise the installed audit-only starter path

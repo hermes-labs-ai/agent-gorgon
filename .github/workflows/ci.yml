@@ -74,4 +74,4 @@ jobs:
           pip install -e .[dev]
 
       - name: Mypy
-        run: mypy agent_warden
+        run: mypy agent_gorgon agent_warden

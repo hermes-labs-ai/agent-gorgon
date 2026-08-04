@@ -5,8 +5,9 @@ of every control decision.** Agent Gorgon observes the process tree plus file an
 visible from user space. It can safely rehearse policy in audit-only mode, then attempt SIGSTOP or
 SIGKILL for reviewed triggers when active controls are enabled.
 
-> Version 0.1.7 includes audit-only calibration and matching `agent-gorgon` command aliases. The
-> established `agent-warden` commands remain supported.
+> Version 0.1.8 makes `agent_gorgon` the canonical Python import and `agent-gorgon` the primary
+> command. The earlier `agent_warden` import and `agent-warden` commands remain available as
+> deprecated compatibility aliases for this transition release.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
@@ -26,13 +27,22 @@ SIGKILL for reviewed triggers when active controls are enabled.
 
 ## Install
 
-The package is `agent-gorgon`. Version 0.1.7 adds matching `agent-gorgon` command aliases while
-retaining `agent-warden` for compatibility:
+The package, Python import, and primary command all use Gorgon names:
 
 ```bash
-pip install agent-gorgon==0.1.7
+pip install agent-gorgon==0.1.8
 agent-gorgon --help
 ```
+
+For Python integrations, import the canonical namespace:
+
+```python
+from agent_gorgon.warden import Scope
+```
+
+Existing `agent_warden` imports and `agent-warden` / `agent-warden-forensic` commands continue to
+work in 0.1.8 as deprecated compatibility aliases. The legacy commands print a deprecation notice;
+update integrations to the Gorgon names when convenient.
 
 Requires Python 3.9+. Start with `--audit-only`; active controls are enabled only when that flag is
 omitted, after you have reviewed the policy against a disposable target.
