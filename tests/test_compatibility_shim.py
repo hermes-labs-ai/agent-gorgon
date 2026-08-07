@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import importlib
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 SHIM_SRC = Path(__file__).parents[1] / "compat" / "suy-sideguy" / "src"
 

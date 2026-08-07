@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
+
 def test_gorgon_is_canonical_and_warden_forwards_compatibly() -> None:
     result = subprocess.run(
         [

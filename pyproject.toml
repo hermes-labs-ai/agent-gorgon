@@ -60,8 +60,20 @@ agent_warden = ["scopes/*.yaml"]
 line-length = 100
 target-version = "py39"
 
+[tool.ruff.lint]
+# Pin the rule set explicitly. Ruff's implicit default selection is not stable across
+# releases (0.16 replaced the historical E4/E7/E9/F default with a ~400-rule set and
+# dropped F403/F405 from it), so an unpinned config silently changes what CI enforces
+# on every ruff bump. This list is the historical default plus isort, pyupgrade, and
+# bugbear, and it resolves identically under 0.15.x and 0.16.x.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
 [tool.mypy]
-python_version = "3.9"
+# No `python_version` pin: mypy 2.x dropped 3.9 as a checkable target and ignores
+# the setting with a warning, so pinning it here is inert on new mypy and merely
+# noisy. Type checking targets the interpreter mypy runs under. The 3.9 floor is
+# still enforced by `requires-python`, ruff's `target-version = "py39"`, and the
+# 3.9 leg of the CI test matrix.
 files = ["agent_gorgon", "agent_warden"]
 follow_imports = "skip"
 ignore_missing_imports = true

@@ -5,7 +5,6 @@ import pytest
 
 from agent_warden.warden import Scope, Verdict
 
-
 SCOPE_YAML = """
 filesystem:
   allowed_paths:

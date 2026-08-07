@@ -25,7 +25,6 @@ from agent_warden.warden import (
     resolve_scope_path,
 )
 
-
 VALID_SCOPE = """
 filesystem:
   allowed_paths: ["/tmp/safe/**"]

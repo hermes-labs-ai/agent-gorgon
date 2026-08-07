@@ -6,18 +6,16 @@ import asyncio
 import os
 import tempfile
 
-
+from agent_warden.intent_match import (
+    check_intent_match,
+    classify_instruction,
+)
 from agent_warden.warden import (
     ActionType,
     AgentAction,
     Verdict,
     Warden,
 )
-from agent_warden.intent_match import (
-    check_intent_match,
-    classify_instruction,
-)
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
