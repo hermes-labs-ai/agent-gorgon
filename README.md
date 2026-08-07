@@ -44,6 +44,9 @@ Existing `agent_warden` imports and `agent-warden` / `agent-warden-forensic` com
 work in 0.1.8 as deprecated compatibility aliases. The legacy commands print a deprecation notice;
 update integrations to the Gorgon names when convenient.
 
+The shim's source and its deprecation window live in
+[`compat/suy-sideguy/README.md`](compat/suy-sideguy/README.md).
+
 Requires Python 3.9+. Start with `--audit-only`; active controls are enabled only when that flag is
 omitted, after you have reviewed the policy against a disposable target.
 
