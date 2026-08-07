@@ -2,16 +2,17 @@
 """Generate consolidated incident/liability report from Warden + Canary logs."""
 
 from __future__ import annotations
+
 import argparse
 import hashlib
 import json
 import os
 import stat
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Any
-
+from typing import Any
 
 UTC = timezone.utc
 

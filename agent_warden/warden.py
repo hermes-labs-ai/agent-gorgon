@@ -22,24 +22,24 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import fnmatch
 import glob
+import ipaddress
 import json
+import logging
+import math
 import os
 import re
+import shlex
 import sys
 import time
-import shlex
-import fnmatch
-import ipaddress
-import logging
-import argparse
-import math
 from collections.abc import Iterable
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from dataclasses import dataclass, field, asdict
 from enum import Enum
+from pathlib import Path
 
 if __package__:
     from ._version import __version__
@@ -159,7 +159,7 @@ class Scope:
     """Loads and queries the agent's allowed scope."""
     
     def __init__(self, scope_path: str):
-        with open(scope_path, 'r', encoding='utf-8') as f:
+        with open(scope_path, encoding='utf-8') as f:
             loaded = yaml.safe_load(f)
 
         if loaded is None:
@@ -3566,7 +3566,7 @@ class Warden:
                 self._halt_episode_report_path = report_path
             else:
                 report_path = self._halt_episode_report_path
-            with open(report_path, 'r') as f:
+            with open(report_path) as f:
                 report = json.load(f)
             report["halt_report"]["status"] = (
                 "AGENT_SUSPENDED" if self.suspended else "SUSPENSION_FAILED"
@@ -3669,7 +3669,7 @@ class Warden:
                 self._kill_episode_report_path = str(report_path)
 
             # Update the one episode report with the latest control outcome.
-            with open(report_path, 'r') as f:
+            with open(report_path) as f:
                 report = json.load(f)
             report["session_summary"]["session_duration_seconds"] = (
                 time.time() - self.start_time
