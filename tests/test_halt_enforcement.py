@@ -34,7 +34,6 @@ from agent_warden.warden import (
     WardenVerdict,
 )
 
-
 SCOPE_YAML = """
 filesystem:
   allowed_paths:
