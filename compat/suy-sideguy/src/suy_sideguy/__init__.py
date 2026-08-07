@@ -1,6 +1,16 @@
 """Deprecated import forwarders for Agent Warden."""
 
-from agent_warden import __version__, cli, enforcement, forensic_report, models, observer, policy, scope, warden
+from agent_warden import (
+    __version__,
+    cli,
+    enforcement,
+    forensic_report,
+    models,
+    observer,
+    policy,
+    scope,
+    warden,
+)
 
 from ._warning import warn_import
 

@@ -17,7 +17,6 @@ from agent_warden.warden import (
     WardenVerdict,
 )
 
-
 SCOPE_YAML = """
 filesystem:
   allowed_paths:
@@ -367,7 +366,7 @@ def test_incident_report_schema_core_fields(tmp_path):
 
     import json
 
-    report = json.loads(open(report_path, "r", encoding="utf-8").read())
+    report = json.loads(open(report_path, encoding="utf-8").read())
     assert "incident_report" in report
     assert "kill_trigger" in report
     assert "session_summary" in report

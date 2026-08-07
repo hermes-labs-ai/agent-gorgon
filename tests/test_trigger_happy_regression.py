@@ -25,7 +25,6 @@ from agent_warden.warden import (
     Warden,
 )
 
-
 SCOPE_YAML = """
 filesystem:
   allowed_paths:

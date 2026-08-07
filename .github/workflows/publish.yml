@@ -3,6 +3,12 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing published release tag to rebuild and publish
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +21,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.release_tag }}
           persist-credentials: false
 
       - name: Set up Python
@@ -26,7 +32,7 @@ jobs:
 
       - name: Verify release tag matches package version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           python - <<'PY'
           import os
@@ -38,13 +44,23 @@ jobs:
           assert f"## [{version}] - Unreleased" not in Path("CHANGELOG.md").read_text()
           PY
 
+      - name: Verify published release for manual recovery
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --jq 'select(.draft == false and .prerelease == false) | .tag_name' \
+            | grep -Fx "$RELEASE_TAG"
+
       - name: Test, build, and inspect distribution
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]' build twine
           pytest -q
           ruff check .
-          mypy agent_warden
+          mypy agent_gorgon agent_warden
           python -m build
           python -m twine check dist/*
 
@@ -59,12 +75,17 @@ jobs:
           /tmp/agent-gorgon-release-smoke/bin/agent-warden --help >/dev/null
           /tmp/agent-gorgon-release-smoke/bin/agent-warden-forensic --help >/dev/null
           /tmp/agent-gorgon-release-smoke/bin/python - <<'PY'
-          import agent_warden
+          import agent_gorgon
+          from agent_gorgon.warden import Scope as CanonicalScope
           from pathlib import Path
           import tomllib
+          from agent_warden.warden import Scope as LegacyScope
 
           expected = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          assert agent_gorgon.__version__ == expected
+          import agent_warden
           assert agent_warden.__version__ == expected
+          assert CanonicalScope is LegacyScope
           PY
 
       - name: Exercise the installed audit-only starter path
@@ -80,7 +101,7 @@ jobs:
             --poll 0.05 \
             --no-llm \
             --audit-only \
-            --log-dir "$demo_dir/evidence" | tee "$demo_dir/run.log"
+            --log-dir "$demo_dir/evidence" 2>&1 | tee "$demo_dir/run.log"
           grep -F "would HALT: Suspicious process spawned: wget" "$demo_dir/run.log"
 
       - name: Upload distribution artifacts

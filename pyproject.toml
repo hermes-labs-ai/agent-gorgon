@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-gorgon"
-version = "0.1.7"
+version = "0.1.8"
 description = "User-space runtime policy guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -38,10 +38,10 @@ dev = [
 ]
 
 [project.scripts]
-agent-gorgon = "agent_warden.warden:entrypoint"
-agent-gorgon-forensic = "agent_warden.forensic_report:main"
-agent-warden = "agent_warden.warden:entrypoint"
-agent-warden-forensic = "agent_warden.forensic_report:main"
+agent-gorgon = "agent_gorgon.warden:entrypoint"
+agent-gorgon-forensic = "agent_gorgon.forensic_report:main"
+agent-warden = "agent_gorgon.legacy:warden_entrypoint"
+agent-warden-forensic = "agent_gorgon.legacy:forensic_main"
 
 [project.urls]
 Homepage = "https://github.com/hermes-labs-ai/agent-gorgon"
@@ -51,7 +51,7 @@ Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
 Changelog = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["agent_warden", "agent_warden.scopes"]
+packages = ["agent_gorgon", "agent_gorgon.scopes", "agent_warden", "agent_warden.scopes"]
 
 [tool.setuptools.package-data]
 agent_warden = ["scopes/*.yaml"]
@@ -60,9 +60,21 @@ agent_warden = ["scopes/*.yaml"]
 line-length = 100
 target-version = "py39"
 
+[tool.ruff.lint]
+# Pin the rule set explicitly. Ruff's implicit default selection is not stable across
+# releases (0.16 replaced the historical E4/E7/E9/F default with a ~400-rule set and
+# dropped F403/F405 from it), so an unpinned config silently changes what CI enforces
+# on every ruff bump. This list is the historical default plus isort, pyupgrade, and
+# bugbear, and it resolves identically under 0.15.x and 0.16.x.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
 [tool.mypy]
-python_version = "3.9"
-files = ["agent_warden"]
+# No `python_version` pin: mypy 2.x dropped 3.9 as a checkable target and ignores
+# the setting with a warning, so pinning it here is inert on new mypy and merely
+# noisy. Type checking targets the interpreter mypy runs under. The 3.9 floor is
+# still enforced by `requires-python`, ruff's `target-version = "py39"`, and the
+# 3.9 leg of the CI test matrix.
+files = ["agent_gorgon", "agent_warden"]
 follow_imports = "skip"
 ignore_missing_imports = true
 warn_unused_ignores = true
