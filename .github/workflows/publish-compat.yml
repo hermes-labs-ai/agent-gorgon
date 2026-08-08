@@ -10,7 +10,7 @@ on:
       version:
         description: "Exact canonical and shim version"
         required: true
-        default: "0.1.6"
+        default: "0.1.8"
         type: string
       confirmation:
         description: "Type: publish shim after canonical receipt verified"

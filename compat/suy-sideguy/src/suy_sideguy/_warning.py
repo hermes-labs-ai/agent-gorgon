@@ -7,7 +7,7 @@ REMOVAL_RELEASE = "0.4.0"
 REMOVAL_NOT_BEFORE = "2026-10-10"
 MESSAGE = (
     "suy-sideguy is deprecated; migrate to the agent-gorgon distribution, "
-    "agent_warden imports, and agent-warden commands. The compatibility shim is proposed "
+    "agent_gorgon imports, and agent-gorgon commands. The compatibility shim is proposed "
     f"for removal in {REMOVAL_RELEASE}, no earlier than {REMOVAL_NOT_BEFORE}."
 )
 

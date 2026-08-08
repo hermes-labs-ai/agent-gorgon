@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "suy-sideguy"
-version = "0.1.6"
+version = "0.1.8"
 description = "Temporary compatibility shim for the agent-gorgon distribution."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,7 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = ["agent-gorgon==0.1.6"]
+dependencies = ["agent-gorgon==0.1.8"]
 
 [project.scripts]
 suy-warden = "suy_sideguy._compat_cli:warden"
