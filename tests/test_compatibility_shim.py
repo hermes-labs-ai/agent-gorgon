@@ -24,9 +24,9 @@ def test_legacy_imports_warn_and_forward(monkeypatch: pytest.MonkeyPatch) -> Non
     with pytest.warns(DeprecationWarning, match="suy-sideguy is deprecated"):
         legacy = importlib.import_module("suy_sideguy")
 
-    canonical = importlib.import_module("agent_warden")
+    canonical = importlib.import_module("agent_gorgon")
     legacy_warden = importlib.import_module("suy_sideguy.warden")
-    canonical_warden = importlib.import_module("agent_warden.warden")
+    canonical_warden = importlib.import_module("agent_gorgon.warden")
 
     assert legacy.__version__ == canonical.__version__
     assert legacy_warden.Warden is canonical_warden.Warden
@@ -69,6 +69,7 @@ def test_legacy_python_module_cli_forwards_with_visible_warning(module: str) -> 
 
     assert result.returncode == 0, result.stderr
     assert "DEPRECATION: suy-sideguy is deprecated" in result.stderr
+    assert "agent_gorgon imports, and agent-gorgon commands" in result.stderr
     assert "usage:" in result.stdout
 
 

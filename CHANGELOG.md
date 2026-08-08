@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `agent_gorgon` is now the canonical Python import namespace; new integrations should use it.
 - `agent-gorgon` and `agent-gorgon-forensic` are the primary console commands.
+- The unpublished `suy-sideguy` compatibility shim now targets `agent-gorgon==0.1.8` and
+  directs users to the canonical Gorgon imports and commands.
 
 ### Deprecated
 - `agent_warden` imports and the `agent-warden` / `agent-warden-forensic` commands remain
