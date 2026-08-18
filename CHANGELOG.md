@@ -5,6 +5,120 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-08-04
+
+### Changed
+- `agent_gorgon` is now the canonical Python import namespace; new integrations should use it.
+- `agent-gorgon` and `agent-gorgon-forensic` are the primary console commands.
+- The unpublished `suy-sideguy` compatibility shim now targets `agent-gorgon==0.1.8` and
+  directs users to the canonical Gorgon imports and commands.
+
+### Deprecated
+- `agent_warden` imports and the `agent-warden` / `agent-warden-forensic` commands remain
+  available for this transition release and forward to the Gorgon implementation with a visible
+  deprecation notice for legacy commands.
+
+## [0.1.7] - 2026-08-04
+
+### Added
+- `--audit-only` provides a non-signaling calibration path that records verdicts
+  and evidence without attempting `SIGSTOP` or `SIGKILL`.
+- A safe first-use walkthrough monitors a disposable process before users apply
+  active controls to a real agent workload.
+- `agent-gorgon` command aliases and a packaged `starter` scope make an installed
+  wheel independently usable without a repository checkout.
+
+### Changed
+- Public positioning now leads with the concrete product category, runtime
+  policy guard, while keeping user-space polling and enforcement limits explicit.
+- Package, command, release, platform-support, and source-versus-PyPI boundaries
+  are stated together so users can tell what is available in each build.
+- The PyPI workflow now tests, lints, type-checks, builds, inspects, and smoke-tests
+  the exact release artifact before requesting trusted publication.
+- Release actions are pinned to immutable commits, and the uploaded wheel is
+  handed from a read-only build job to the OIDC publishing job.
+- Runtime evidence now lives under an Agent Gorgon-owned private directory.
+- Incident handling preserves non-mutating remediation guidance instead of moving
+  files observed during a control event.
+
+### Fixed
+- CLI help no longer labels source-only `--audit-only` behavior with the wrong
+  public package version.
+- Runtime controls bind to process identity and report stop/exit only after
+  observing that outcome; ambiguous name targeting is rejected.
+- Scope types and thresholds are validated before monitoring, and built-in SSH
+  protection is narrowed to recognized private-key and credential material.
+
+## [0.1.6] - 2026-07-22
+
+### Changed
+- GitHub repository renamed `agent-warden` -> `agent-gorgon` to match the PyPI
+  distribution name. Imports (`agent_warden`) and the `agent-warden` /
+  `agent-warden-forensic` CLIs are unchanged. First release published to PyPI.
+- The unpublished `suy-sideguy` compatibility candidate now matches
+  `agent-gorgon==0.1.6`; the earlier 0.1.5 target had no satisfiable
+  `agent-gorgon==0.1.5` release.
+
+## [0.1.5] - 2026-07-20
+
+### Changed
+- **Agent Warden is the canonical identity** — the primary distribution is `agent-warden`,
+  imports use `agent_warden`, and the CLIs are `agent-warden` and `agent-warden-forensic`.
+- **Suy Sideguy is a time-bounded compatibility shim** — `suy-sideguy==0.1.5` depends on
+  exactly `agent-gorgon==0.1.5` (the PyPI distribution of Agent Warden), forwards historical imports and commands, and emits
+  deprecation diagnostics. The proposed default removal is Agent Warden 0.4.0, no earlier
+  than 2026-10-10 and only after the owner records the release flip.
+
+### Fixed
+- **Prior exact-review blockers closed** — shell `-c` parsing preserves the command-string boundary,
+  advisory LLM fanout is bounded to one in-flight task, and completed advisory evidence is persisted.
+- **Evidence claims are outcome-bound** — a failed or partial process-tree SIGKILL attempt stays
+  retryable and its report no longer claims that the process terminated; retries update one episode
+  report without repeating rollback, and report generator metadata now matches 0.1.5.
+- **Runtime and privacy claims are explicit** — snapshot deletes are documented as unattributed and
+  non-enforcing, nonexistent audit/confirm modes are no longer advertised, `--no-llm` disables local
+  Ollama traffic, and raw-IP checks no longer use untrusted/leaky reverse DNS.
+- **HALT now attempts control** — a HALT verdict attempts to SIGSTOP the agent process tree
+  (reversible pause) and records the observed outcome in a forensic report. Later HALTs reconcile
+  the visible process state before suppressing a signal, and failed one-shot attempts retry without
+  duplicating the episode report. Previously HALT only logged and the agent kept running.
+- **LLM judge is advisory-only** — the Ollama judge can no longer emit KILL/HALT (schema is SAFE/FLAG; anything else is coerced to FLAG) and runs off the enforcement hot path, closing the blind-window DoS on the monitor. KILL and SIGSTOP remain the deterministic rule engine's exclusive authority.
+- **Credential-read plus non-local network egress KILLs deterministically** when an external socket
+  is active at read time or a new external connection appears inside the correlation window. A bare
+  network-out stays HALT/FLAG, and the complete IP loopback ranges stay SAFE without disarming a
+  later external-egress correlation. A close followed by a reopen or reconnect emits a fresh
+  observation instead of being suppressed by lifetime de-duplication.
+- **In-process deletes are now observed** — poll-time filesystem diff of scope roots emits synthetic
+  FILE_DELETE/FILE_WRITE actions (`os.remove` opens no fd, so `psutil.open_files()` alone was blind
+  to them). Literal symlink roots such as macOS `/tmp` are opened through a pinned concrete target
+  while evidence retains the configured path spelling; descendant symlinks are not traversed.
+- **No more SIGKILL on benign dev work** — rate-limit breaches do not kill, and conventional
+  relative project/build cleanup inside the filesystem allowlist remains low-noise. Arbitrary
+  recursive-delete operands outside the allowlist HALT reversibly instead of becoming SAFE through an allowed shell;
+  `rm -rf` on protected roots (`~/.ssh`, `~/.aws`, `~/.gnupg`) still KILLs, including the bare
+  directory (contents-glob regression closed).
+- **Relative recursive-delete targets use the observed child cwd** — `sh -c 'rm -rf .ssh'`
+  launched from the user's home now resolves to the protected credential directory; if child-cwd
+  observation is unavailable, the Warden HALTs instead of guessing SAFE. Known project cwd cleanup
+  such as `build/` and `.venv` remains benign.
+- **Recursive-delete wrapper and glob bypasses are closed** — supported `env` execution wrappers,
+  including `env -C`, are reduced before classification; root/home ancestors and first-level glob
+  forms such as `/**`, `/.*`, `~/**`, `$HOME*`, and `~/..` no longer classify SAFE. Unsupported
+  wrapper, dynamic-option, command-substitution, or shell-expansion semantics HALT reversibly,
+  while literal project-scoped cleanup remains benign. Observed direct argv preserves literal
+  metacharacters instead of re-expanding them as shell text. Forbidden-glob intersections are
+  decided symbolically without recursively enumerating the filesystem on the monitoring hot path.
+- **Shipped generic scope enforced nothing** — `examples/scope.generic.yaml` used a flat schema the parser silently read as empty allowlists; rewritten nested, and `Scope` now fails loud on legacy flat-schema keys.
+
+### Added
+- Regression coverage for enforcement outcomes, observer limits, packaging compatibility, and
+  protected-delete countercontrols.
+
+## [0.1.4] - 2026-05-30
+
+### Added
+- DOI-readiness metadata (CITATION.cff, .zenodo.json). Tagged `v0.1.4` on GitHub; not published to PyPI.
+
 ## [0.1.3] - 2026-03-08
 
 ### Added

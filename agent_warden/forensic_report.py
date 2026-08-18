@@ -2,14 +2,17 @@
 """Generate consolidated incident/liability report from Warden + Canary logs."""
 
 from __future__ import annotations
+
 import argparse
 import hashlib
 import json
+import os
+import stat
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Any
-
+from typing import Any
 
 UTC = timezone.utc
 
@@ -88,7 +91,13 @@ def gather(inp: Inputs) -> dict[str, Any]:
     for f in incident_files:
         try:
             doc = json.loads(f.read_text(encoding="utf-8"))
-            ts = parse_ts(doc.get("incident_report", {}).get("generated_at"))
+            ts = None
+            for report_key in ("incident_report", "halt_report"):
+                report = doc.get(report_key)
+                if isinstance(report, dict):
+                    ts = parse_ts(report.get("generated_at"))
+                    if ts:
+                        break
             if ts and ts >= since:
                 doc["_source"] = str(f)
                 incidents.append(doc)
@@ -101,6 +110,31 @@ def gather(inp: Inputs) -> dict[str, Any]:
         if f.exists():
             evidence.append({"path": str(f), "sha256": file_sha256(f)})
 
+    kill_actions = [
+        action
+        for action in actions
+        if action.get("verdict") == "KILL"
+        and action.get("control_mode", "active") != "audit_only"
+    ]
+    would_kill_actions = [
+        action
+        for action in actions
+        if action.get("verdict") == "KILL"
+        and action.get("control_mode") == "audit_only"
+    ]
+    halt_actions = [
+        action
+        for action in actions
+        if action.get("verdict") == "HALT"
+        and action.get("control_mode", "active") != "audit_only"
+    ]
+    would_halt_actions = [
+        action
+        for action in actions
+        if action.get("verdict") == "HALT"
+        and action.get("control_mode") == "audit_only"
+    ]
+
     return {
         "window_hours": inp.last_hours,
         "since": since.isoformat(),
@@ -109,10 +143,16 @@ def gather(inp: Inputs) -> dict[str, Any]:
             "warden_incidents": len(incidents),
             "canary_audit_events": len(canary_rows),
             "canary_alerts": len(canary_alert_rows),
-            "warden_kill_events": sum(1 for a in actions if (a.get("verdict") == "KILL")),
+            "warden_kill_events": len(kill_actions),
+            "warden_would_kill_events": len(would_kill_actions),
+            "warden_halt_events": len(halt_actions),
+            "warden_would_halt_events": len(would_halt_actions),
         },
         "highlights": {
-            "recent_kill_reasons": [a.get("reason") for a in actions if a.get("verdict") == "KILL"][:10],
+            "recent_kill_reasons": [a.get("reason") for a in kill_actions[:10]],
+            "recent_would_kill_reasons": [a.get("reason") for a in would_kill_actions[:10]],
+            "recent_halt_reasons": [a.get("reason") for a in halt_actions[:10]],
+            "recent_would_halt_reasons": [a.get("reason") for a in would_halt_actions[:10]],
             "recent_canary_blocks": [r.get("summary") for r in canary_rows if r.get("safe") is False][:10],
         },
         "evidence_manifest": evidence,
@@ -122,21 +162,67 @@ def gather(inp: Inputs) -> dict[str, Any]:
     }
 
 
+def _write_private_json(path: Path, report: dict[str, Any]) -> None:
+    """Write a report without exposing sensitive evidence to other local users."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=False, mode=0o700)
+    except FileExistsError:
+        # Never change permissions on an operator-selected existing directory.
+        pass
+    parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
+    if parent_mode & 0o022:
+        raise PermissionError(
+            f"Refusing to write sensitive evidence in group/world-writable directory: "
+            f"{path.parent}"
+        )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags, 0o600)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise ValueError(f"Forensic output must be a regular file: {path}")
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2)
+        handle.write("\n")
+    path.chmod(0o600)
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--workspace", default=str(Path.home() / ".openclaw" / "workspace"))
-    ap.add_argument("--sysmond-logs", default=str(Path.home() / ".local" / "share" / "sysmond" / "logs"))
+    ap = argparse.ArgumentParser(
+        description="Summarize Agent Gorgon evidence from an explicit log directory."
+    )
+    ap.add_argument(
+        "--workspace",
+        default=str(Path.cwd()),
+        help="Optional workspace containing security/canary logs (default: current directory)",
+    )
+    ap.add_argument(
+        "--evidence-dir",
+        "--sysmond-logs",
+        dest="sysmond_logs",
+        default=str(Path.home() / ".local" / "share" / "agent-gorgon" / "logs"),
+        help="Directory containing actions_*.jsonl and incidents/",
+    )
     ap.add_argument("--last-hours", type=int, default=24)
-    ap.add_argument("--out", default=None)
+    ap.add_argument(
+        "--out",
+        default=None,
+        help="Write private JSON to this path; without --out, print JSON to stdout",
+    )
     args = ap.parse_args()
 
     inp = Inputs(workspace=Path(args.workspace), sysmond_logs=Path(args.sysmond_logs), last_hours=args.last_hours)
     report = gather(inp)
 
-    out_path = Path(args.out) if args.out else inp.workspace / "security" / f"INCIDENT_REPORT_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(str(out_path))
+    if args.out:
+        out_path = Path(args.out)
+        _write_private_json(out_path, report)
+        print(str(out_path))
+    else:
+        print(json.dumps(report, indent=2))
     return 0
 
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 
-
 # ── Intent classification ────────────────────────────────────────────────────
 
 # Ordered from most-specific / highest-severity to least, so the first match wins.

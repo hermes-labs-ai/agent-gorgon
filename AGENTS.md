@@ -1,11 +1,11 @@
 # AGENTS.md
 
-`suy-sideguy` is a user-space runtime safety guard for agent processes.
+`agent-warden` is a best-effort user-space polling guard for agent processes.
 
 ## Use it for
 
 - watching process, file, and network behavior after the agent starts running
-- enforcing policy verdicts such as SAFE, FLAG, HALT, and KILL
+- applying policy verdicts and attempting SIGSTOP/SIGKILL controls for HALT/KILL
 - generating forensic evidence after suspicious or blocked activity
 
 ## Do not use it for
@@ -18,14 +18,16 @@
 
 ```bash
 pip install -e ".[dev]"
-suy-warden --scope examples/scope.low-disruption.yaml --agent-pid 12345 --poll 0.5
-suy-forensic-report --last-hours 24
+agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --audit-only --no-llm
+agent-gorgon-forensic --last-hours 24
 pytest -q
 ```
 
+The `agent-warden` and `agent-warden-forensic` commands remain compatibility aliases.
+
 ## Output shape
 
-- the warden emits runtime verdicts and enforcement actions
+- the warden emits runtime verdicts and records attempted control outcomes
 - forensic reporting reads stored incident artifacts and produces an incident-ready summary
 
 ## Success means
@@ -39,3 +41,4 @@ pytest -q
 - using `--agent-name` when multiple matching processes exist
 - overly broad policies that create noisy early flags
 - expecting full OS visibility from `psutil.open_files()` on every platform
+- assuming activity shorter than the poll interval will always be observed

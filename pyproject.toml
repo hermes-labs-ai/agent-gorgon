@@ -3,12 +3,12 @@ requires = ["setuptools>=82.0.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "suy-sideguy"
-version = "0.1.4"
-description = "Runtime policy guard for autonomous AI agents with user-space enforcement and forensic reporting."
+name = "agent-gorgon"
+version = "0.1.8"
+description = "User-space runtime policy guard with deterministic control decisions and forensic evidence."
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [{ name = "Rolando Bosch" }]
 keywords = ["runtime-agent-guard", "ai-agent-security", "runtime-monitoring", "incident-response", "policy-enforcement", "forensics"]
 classifiers = [
@@ -32,31 +32,49 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.4.2",
-  "ruff>=0.15.15",
-  "mypy>=1.19.1",
+  "ruff>=0.16.1,<0.17",
+  "mypy>=1.19.1,<3",
   "types-PyYAML>=6.0.12.20250915",
 ]
 
 [project.scripts]
-suy-warden = "suy_sideguy.warden:entrypoint"
-suy-forensic-report = "suy_sideguy.forensic_report:main"
+agent-gorgon = "agent_gorgon.warden:entrypoint"
+agent-gorgon-forensic = "agent_gorgon.forensic_report:main"
+agent-warden = "agent_gorgon.legacy:warden_entrypoint"
+agent-warden-forensic = "agent_gorgon.legacy:forensic_main"
 
 [project.urls]
-Homepage = "https://github.com/hermes-labs-ai/suy-sideguy"
-Repository = "https://github.com/hermes-labs-ai/suy-sideguy"
-Documentation = "https://github.com/hermes-labs-ai/suy-sideguy#readme"
-Issues = "https://github.com/hermes-labs-ai/suy-sideguy/issues"
-Changelog = "https://github.com/hermes-labs-ai/suy-sideguy/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hermes-labs-ai/agent-gorgon"
+Repository = "https://github.com/hermes-labs-ai/agent-gorgon"
+Documentation = "https://github.com/hermes-labs-ai/agent-gorgon#readme"
+Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
+Changelog = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-packages = ["suy_sideguy"]
+packages = ["agent_gorgon", "agent_gorgon.scopes", "agent_warden", "agent_warden.scopes"]
+
+[tool.setuptools.package-data]
+agent_warden = ["scopes/*.yaml"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py39"
 
+[tool.ruff.lint]
+# Pin the rule set explicitly. Ruff's implicit default selection is not stable across
+# releases (0.16 replaced the historical E4/E7/E9/F default with a ~400-rule set and
+# dropped F403/F405 from it), so an unpinned config silently changes what CI enforces
+# on every ruff bump. This list is the historical default plus isort, pyupgrade, and
+# bugbear, and it resolves identically under 0.15.x and 0.16.x.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
 [tool.mypy]
-python_version = "3.9"
-files = ["suy_sideguy"]
+# No `python_version` pin: mypy 2.x dropped 3.9 as a checkable target and ignores
+# the setting with a warning, so pinning it here is inert on new mypy and merely
+# noisy. Type checking targets the interpreter mypy runs under. The 3.9 floor is
+# still enforced by `requires-python`, ruff's `target-version = "py39"`, and the
+# 3.9 leg of the CI test matrix.
+files = ["agent_gorgon", "agent_warden"]
+follow_imports = "skip"
 ignore_missing_imports = true
 warn_unused_ignores = true

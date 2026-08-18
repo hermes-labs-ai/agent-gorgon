@@ -1,0 +1,66 @@
+name: Publish suy-sideguy compatibility shim
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or full commit SHA already used for the canonical release"
+        required: true
+        type: string
+      version:
+        description: "Exact canonical and shim version"
+        required: true
+        default: "0.1.8"
+        type: string
+      confirmation:
+        description: "Type: publish shim after canonical receipt verified"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    if: inputs.confirmation == 'publish shim after canonical receipt verified'
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Verify exact version contract
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import tomllib
+
+          expected = os.environ["EXPECTED_VERSION"]
+          canonical = tomllib.loads(Path("pyproject.toml").read_text())
+          shim = tomllib.loads(Path("compat/suy-sideguy/pyproject.toml").read_text())
+          assert canonical["project"]["name"] == "agent-gorgon"
+          assert shim["project"]["name"] == "suy-sideguy"
+          assert canonical["project"]["version"] == expected
+          assert shim["project"]["version"] == expected
+          assert shim["project"]["dependencies"] == [f"agent-gorgon=={expected}"]
+          PY
+
+      - name: Build compatibility artifact only
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+          python -m build --outdir dist/compat compat/suy-sideguy
+
+      - name: Publish compatibility artifact
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/compat/

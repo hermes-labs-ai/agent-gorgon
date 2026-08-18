@@ -1,17 +1,3 @@
 # Changelog
 
-
-## 0.1.1 - 2026-03-01
-
-### Added
-- Layered implementation plan with explicit rollout/audit checkboxes (`docs/IMPLEMENTATION_PLAN_LAYERED.md`).
-- Low-disruption scope profile for staged operations (`examples/scope.low-disruption.yaml`).
-- Audit checklist for promotion gates (`docs/AUDIT_CHECKLIST.md`).
-- Added audit and traceability artifacts.
-
-### Changed
-- README rollout language normalized to staged-calibration framing.
-- README now points to low-disruption scope and audit docs.
-
-### Notes
-- This is a reliability/process update focused on safer rollout and clearer operator expectations.
+This file is retired — the canonical changelog lives at [`../CHANGELOG.md`](../CHANGELOG.md).

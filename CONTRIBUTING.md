@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Suy Sideguy.
+Thanks for helping improve Agent Warden.
 
 ## Quick setup
 
@@ -17,8 +17,8 @@ Run these checks locally:
 
 ```bash
 pytest
-python -m suy_sideguy.warden --help
-python -m suy_sideguy.forensic_report --help
+python -m agent_warden.warden --help
+python -m agent_warden.forensic_report --help
 ```
 
 ## Pull request expectations

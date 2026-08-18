@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in suy-sideguy
+description: Report a bug in agent-gorgon
 labels: ["bug"]
 body:
   - type: textarea
@@ -15,15 +15,15 @@ body:
       label: Reproduction Steps
       description: Steps to reproduce the behavior.
       placeholder: |
-        1. Run `suy-warden --scope ...`
+        1. Run `agent-warden --scope ...`
         2. See error ...
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: suy-sideguy Version
-      description: "Output of `pip show suy-sideguy | grep Version`"
+      label: Agent Warden Version
+      description: "Output of `pip show agent-gorgon | grep Version`"
       placeholder: "0.1.0"
     validations:
       required: true

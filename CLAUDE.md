@@ -1,22 +1,22 @@
-# Suy Sideguy
+# agent-warden
 
 Runtime safety guard for autonomous AI agents. Monitors process/file/network behavior, applies policy rules, terminates violations.
 
 ## Commands
 
 - `pip install -e ".[dev]"` -- Install with dev deps
-- `pytest` -- Run all 15 tests
+- `pytest` -- Run the full test suite
 - `pytest tests/test_scope.py -v` -- Single test module
-- `ruff check suy_sideguy/` -- Lint
-- `mypy suy_sideguy/` -- Type check
+- `ruff check agent_warden/` -- Lint
+- `mypy agent_warden/` -- Type check
 - `python -m build` -- Build wheel + sdist
-- `suy-warden --scope examples/scope.openclaw.yaml --agent-pid 12345 --poll 0.5` -- Run warden
-- `suy-forensic-report --last-hours 24` -- Generate incident report
+- `agent-warden --scope examples/scope.openclaw.yaml --agent-pid 12345 --poll 0.5` -- Run warden
+- `agent-warden-forensic --last-hours 24` -- Generate incident report
 
 ## Architecture
 
 ```
-suy_sideguy/
+agent_warden/
   warden.py          # Main loop: observe → evaluate → enforce (entry point)
   observer.py        # Process/file/network monitoring via psutil
   policy.py          # Rule evaluation engine
@@ -27,7 +27,7 @@ suy_sideguy/
   cli.py             # Argument parsing
 ```
 
-5-stage pipeline: Observer → Rule Engine (instant scope checks) → LLM Judge (Ollama, ambiguous cases) → Killswitch (SIGKILL) → Responder (forensic report).
+Enforcement pipeline: Observer → Rule Engine (deterministic scope checks — the SOLE authority for KILL and HALT) → Killswitch (SIGKILL / reversible SIGSTOP) → Responder (forensic report). The LLM Judge (Ollama) is an advisory-only sidecar off the enforcement hot path: its verdicts are capped to SAFE/FLAG and it can never kill or suspend.
 
 ## Key Constraints
 
@@ -52,4 +52,5 @@ suy_sideguy/
 - Network checks match IP/port, not domain — DNS resolution is lossy
 - `--agent-name` can over-match processes; prefer `--agent-pid` in production
 - Log/evidence paths default to `~/.local/share/sysmond/` (legacy naming)
-- The scope YAML `flag_threshold` and `flag_window` control when flags escalate to kill
+- Flags do not auto-kill unless `WARDEN_KILL_ON_FLAGS=1`; then `flag_threshold` and
+  `flag_window` control accumulation

@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "suy-sideguy: runtime policy guard for autonomous AI agents"
-abstract: "suy-sideguy is a runtime policy guard for autonomous AI agents: it enforces kill/flag policy on a live agent process and produces a forensic report of what the agent actually did, judging the agent by its behavior rather than its configuration."
+title: "Agent Gorgon: runtime policy guard for autonomous AI agents"
+abstract: "Agent Gorgon is a user-space runtime policy guard for autonomous AI agents. It applies deterministic policy to process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution."
 type: software
 authors:
   - family-names: "Bosch Rodriguez"
@@ -9,8 +9,8 @@ authors:
     orcid: "https://orcid.org/0009-0005-4896-1112"
     affiliation: "Hermes Labs"
 license: Apache-2.0
-repository-code: "https://github.com/hermes-labs-ai/suy-sideguy"
-version: "0.1.4"
+repository-code: "https://github.com/hermes-labs-ai/agent-gorgon"
+version: "0.1.8"
 keywords:
   - "AI reliability"
   - "agent safety"
