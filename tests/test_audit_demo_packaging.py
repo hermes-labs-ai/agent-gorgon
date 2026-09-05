@@ -13,6 +13,8 @@ scope template ships as package data and the console-script target resolves.
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 from pathlib import Path
 
 import tomllib
@@ -51,3 +53,16 @@ def test_scope_template_is_declared_as_package_data():
     assert warden_audit_demo.SCOPE_TEMPLATE_PATH.name in patterns or any(
         warden_audit_demo.SCOPE_TEMPLATE_PATH.match(p) for p in patterns
     )
+
+
+def test_source_checkout_wrapper_runs_without_install():
+    root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, "examples/harness/run_audit_workload.py", "--help"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--out OUT" in result.stdout

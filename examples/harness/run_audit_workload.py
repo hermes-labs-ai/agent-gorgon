@@ -18,6 +18,14 @@ expected ground truth (a false trigger or a missed detection).
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Direct script execution puts examples/harness, not the checkout root, on
+# sys.path. Keep the documented source-checkout command runnable without an
+# editable install.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from agent_warden.audit_demo import main, run_scenario  # noqa: F401
 
 if __name__ == "__main__":
