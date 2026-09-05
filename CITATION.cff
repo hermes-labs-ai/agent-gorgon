@@ -10,7 +10,7 @@ authors:
     affiliation: "Hermes Labs"
 license: Apache-2.0
 repository-code: "https://github.com/hermes-labs-ai/agent-gorgon"
-version: "0.1.8"
+version: "0.2.0"
 keywords:
   - "AI reliability"
   - "agent safety"

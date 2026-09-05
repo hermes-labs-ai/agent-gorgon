@@ -1,0 +1,55 @@
+# Scope template for the packaged owned-child-process audit demo
+# (`agent-gorgon-audit-demo` / `agent_warden.audit_demo`). WORKSPACE_GLOB is
+# filled in with os.path.realpath(workspace) before use.
+#
+# WARNING (confirmed on macOS): psutil.open_files() reports the *resolved*
+# path, e.g. /private/var/folders/.../T/agent-gorgon-workload.XXXX, not the
+# /tmp/... spelling you typed. A literal "/tmp/agent-gorgon-workload.*/**"
+# allowed_paths pattern will NOT match those observations and produces a
+# false "Path outside allowed scope" FLAG on a write that is actually inside
+# the intended workspace (see docs/EVIDENCE.md). Always realpath() the
+# directories you put in allowed_paths.
+
+agent:
+  name: "audit-workload-demo"
+  pid: null
+
+filesystem:
+  allowed_paths:
+    - "WORKSPACE_GLOB"
+  forbidden_paths:
+    - "~/.ssh/**"
+    - "~/.gnupg/**"
+    - "~/.aws/**"
+  forbidden_extensions:
+    - ".pem"
+    - ".key"
+    - ".p12"
+    - ".keychain"
+    - ".keychain-db"
+
+network:
+  allowed_domains:
+    - "localhost"
+    - "127.0.0.1"
+  forbidden_domains: []
+  allowed_ports:
+    - 80
+    - 443
+
+process:
+  allowed_commands:
+    - "sh"
+    - "bash"
+    - "python3"
+    - "python"
+    - "sleep"
+  forbidden_commands:
+    - "ssh"
+    - "scp"
+    - "sudo"
+
+behavior:
+  flag_threshold: 12
+  flag_window: 300
+  max_actions_per_minute: 300

@@ -1,13 +1,24 @@
 # agent-gorgon
 
+## The problem
+
+An autonomous agent process can spawn a child that reads `~/.ssh/id_rsa`, writes outside its
+workspace, or shells out to `curl`/`wget` -- and by default nothing watches for that at runtime
+except the agent's own (possibly compromised or simply buggy) judgment. Sandboxes and
+input-side filters don't cover this: they run before or around the agent, not against what its
+process tree actually does once it starts executing. Agent Gorgon is the userspace layer that
+watches the running process tree, applies a deterministic policy to what it sees, and can pause
+or kill a matching process -- calibrated first in a mode that changes nothing.
+
 **See what an autonomous agent process does, apply deterministic runtime policy, and keep evidence
 of every control decision.** Agent Gorgon observes the process tree plus file and network activity
 visible from user space. It can safely rehearse policy in audit-only mode, then attempt SIGSTOP or
 SIGKILL for reviewed triggers when active controls are enabled.
 
-> Version 0.1.8 makes `agent_gorgon` the canonical Python import and `agent-gorgon` the primary
+> Version 0.1.8 made `agent_gorgon` the canonical Python import and `agent-gorgon` the primary
 > command. The earlier `agent_warden` import and `agent-warden` commands remain available as
-> deprecated compatibility aliases for this transition release.
+> deprecated compatibility aliases. Version 0.2.0 adds the packaged `agent-gorgon-audit-demo`
+> command: a one-command, audit-only owned-process demo that works from a bare `pip install`.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
@@ -30,7 +41,7 @@ SIGKILL for reviewed triggers when active controls are enabled.
 The package, Python import, and primary command all use Gorgon names:
 
 ```bash
-pip install agent-gorgon==0.1.8
+pip install agent-gorgon==0.2.0
 agent-gorgon --help
 ```
 
@@ -41,7 +52,7 @@ from agent_gorgon.warden import Scope
 ```
 
 Existing `agent_warden` imports and `agent-warden` / `agent-warden-forensic` commands continue to
-work in 0.1.8 as deprecated compatibility aliases. The legacy commands print a deprecation notice;
+work as deprecated compatibility aliases. The legacy commands print a deprecation notice;
 update integrations to the Gorgon names when convenient.
 
 The shim's source and its deprecation window live in
@@ -96,6 +107,19 @@ agent-gorgon-forensic \
 The installed `starter` scope is for audit-only evaluation. For a real workload, copy and narrow a
 scope from [examples](examples/), prefer an exact `--agent-pid`, and keep evidence outside the
 target's workspace. Remove the temporary demo directory when you no longer need its report.
+
+For a fully scripted version of this demo -- three scenarios (SAFE/HALT/KILL), each run against a
+process the command spawns and owns, diffed against a declared ground truth -- run:
+
+```bash
+agent-gorgon-audit-demo --out /tmp/agent-gorgon-audit-demo.json
+```
+
+This works from a bare `pip install agent-gorgon`, no repository checkout required. It prints a
+machine-readable JSON receipt with each scenario's expected vs. observed verdict, attribution
+counts, and honest watcher-overhead measurements, and exits nonzero if any scenario's observed
+verdict does not match its declared ground truth. See `docs/EVIDENCE.md` for a sample result and
+`docs/HARNESS_RECIPES.md` for how to add your own scenario.
 
 ## When to use it
 
@@ -269,6 +293,10 @@ Also see:
 - `AGENTS.md`
 - `CODE_OF_CONDUCT.md`
 - Audit checklist: `docs/AUDIT_CHECKLIST.md`
+- Concrete harness recipes: `docs/HARNESS_RECIPES.md`
+- Owned-process audit fixtures, attribution/false-trigger results, honest overhead measurements:
+  `agent-gorgon-audit-demo` (packaged), `examples/harness/` (source-checkout wrapper), and
+  `docs/EVIDENCE.md`
 - Layered plan: `docs/IMPLEMENTATION_PLAN_LAYERED.md`
 
 ## Related Hermes Labs tools
