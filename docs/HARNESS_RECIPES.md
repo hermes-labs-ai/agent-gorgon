@@ -1,11 +1,14 @@
 # Harness recipes
 
 Concrete, verified invocation patterns for pointing Agent Gorgon at a real agent process. Every
-recipe below has been exercised in this repository (`examples/harness/`, `tests/`, or the
+recipe below has been exercised in this repository (`agent_warden.audit_demo`, `tests/`, or the
 README demo) against an owned child process; none of it sends a signal to a process this tool
 did not intend to target. Recipes for frameworks not present in this repo (LangChain agent
 loops, browser-driven agents, remote/containerized runtimes) are intentionally omitted rather
 than described speculatively — add one here only after it has actually been run once.
+
+Run the harness itself with `agent-gorgon-audit-demo` (packaged, no checkout required) or
+`python3 examples/harness/run_audit_workload.py` (source-checkout wrapper over the same code).
 
 ## Recipe 1 — you spawn the agent yourself (subprocess)
 
@@ -25,8 +28,8 @@ subprocess.Popen([
 ])
 ```
 
-This is the exact shape `examples/harness/workload_fixtures.py::_run_wrapper` uses and that
-`examples/harness/run_audit_workload.py` exercises end to end.
+This is the exact shape `agent_warden.audit_demo::_run_wrapper` uses and that
+`agent-gorgon-audit-demo` exercises end to end.
 
 ## Recipe 2 — CLI wrapper around a shell-launched agent
 
@@ -41,7 +44,7 @@ agent-gorgon --scope scope.yaml --agent-pid "$AGENT_PID" --audit-only --poll 0.5
 ```
 
 This is what the README's "See it work safely" demo does, and what
-`examples/harness/workload_fixtures.py::suspicious_child_name` reproduces for the HALT trigger.
+`agent_warden.audit_demo::suspicious_child_name` reproduces for the HALT trigger.
 
 ## Recipe 3 — attaching to an already-running agent by exact name
 
@@ -64,15 +67,16 @@ side by side (`AGENTS.md`).
 2. Set `filesystem.allowed_paths` to the **resolved** path of the agent's workspace, not the
    string you typed. On macOS in particular, `os.path.realpath()` your workspace path before
    writing the scope — see `docs/EVIDENCE.md` §2 for a confirmed false-trigger this step avoids.
-3. Run `examples/harness/run_audit_workload.py`-style fixtures (or your own, following the same
-   "owned child process, ground-truth verdict" shape) against a disposable copy of the real
-   workload before removing `--audit-only`.
+3. Run `agent-gorgon-audit-demo`-style fixtures (or your own, following the same "owned child
+   process, ground-truth verdict" shape) against a disposable copy of the real workload before
+   removing `--audit-only`.
 4. Walk `docs/AUDIT_CHECKLIST.md` before enabling active controls or
    `WARDEN_KILL_ON_FLAGS=1`.
 
 ## Adding your own fixture
 
-`examples/harness/workload_fixtures.py::Scenario` is the contract: a wrapper `Popen` you own
-plus the verdict the built-in rules should reach for it. Add a new function there, add it to
-`ALL_SCENARIOS`, and run `examples/harness/run_audit_workload.py` — it will fail (non-zero exit)
-if the observed verdict does not match what you declared, which is the point.
+`agent_warden.audit_demo::Scenario` is the contract: a wrapper `Popen` you own plus the verdict
+the built-in rules should reach for it. Add a new function there, add it to `ALL_SCENARIOS`,
+and run `agent-gorgon-audit-demo` — it will fail (non-zero exit) if the observed verdict does
+not match what you declared, which is the point. `examples/harness/workload_fixtures.py` and
+`run_audit_workload.py` re-export the same names for source-checkout use and need no changes.

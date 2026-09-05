@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-04
+
+### Problem
+
+An installed `agent-gorgon` user had no way to see attribution, false-trigger, or overhead
+evidence for their own copy without cloning the repository and running `examples/harness/`
+by hand. The audit-only workload proof only existed as source-checkout scripts, so it was
+unreachable from a bare `pip install`.
+
+### Added
+- `agent-gorgon-audit-demo` console command: a packaged, one-command owned-process audit
+  demo that runs only child processes it spawns and owns in `--audit-only` mode, printing a
+  machine-readable attribution / false-trigger / overhead JSON receipt. Works from a bare
+  `pip install agent-gorgon` with no repository checkout. The scenarios, harness, and scope
+  template now live in `agent_warden.audit_demo` (re-exported as `agent_gorgon.audit_demo`);
+  `examples/harness/workload_fixtures.py` and `run_audit_workload.py` are thin compatibility
+  wrappers over the same code, not a second implementation.
+
+### Evidence
+- Installed-wheel proof: built `agent_gorgon-0.2.0-py3-none-any.whl`, installed it into an
+  isolated venv with no repository on `sys.path`, and ran `agent-gorgon-audit-demo` from
+  `/tmp` -- 3/3 scenarios matched ground truth (`safe_workspace_write` -> SAFE,
+  `suspicious_child_name` -> HALT, `forbidden_extension_write` -> KILL), exit 0,
+  `false_trigger_or_miss_count: 0`. This is a 3-scenario smoke check confirming the packaged
+  command reaches an installed user, not a statistical false-positive rate (see
+  `docs/EVIDENCE.md`).
+- Full suite: 228 tests collected and passing, including the new
+  `tests/test_audit_demo_packaging.py` packaging regression guard.
+- Overhead is measured, not certified: the watcher polls the target from a separate process
+  (it does not instrument or sandbox the target's own execution), so cost is the watcher's own
+  CPU time only, which scaled with `--poll` in this harness (~43% of one core at `0.05s`,
+  ~10% at the `0.5s` default), plus ~0.05-0.15s of watcher process startup/shutdown reflected
+  in wall clock. These are order-of-magnitude numbers from one macOS ARM environment, not a
+  cross-platform benchmark; see `docs/EVIDENCE.md` for the full measurement and its caveats.
+- Agent Gorgon does not sandbox or prevent anything before it happens: it observes a process
+  tree already running and, outside audit-only mode, reacts to a matching action after the
+  fact via `SIGSTOP`/`SIGKILL`. This release does not change that scope.
+
 ## [0.1.8] - 2026-08-04
 
 ### Changed
