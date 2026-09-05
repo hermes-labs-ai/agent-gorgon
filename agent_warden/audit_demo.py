@@ -227,15 +227,18 @@ def run_scenario(factory, keep: bool) -> dict:
 
     actions = _read_actions(log_dir)
     observed = _highest_verdict(actions)
+    attribution = _attribution_counts(actions)
+    observation_complete = attribution["attributed"] >= 1 and warden.returncode == 0
     result = {
         "scenario": scenario.name,
         "expected_verdict": scenario.expected_verdict,
         "observed_verdict": observed,
-        "match": observed == scenario.expected_verdict,
+        "match": observed == scenario.expected_verdict and observation_complete,
+        "observation_complete": observation_complete,
         "rationale": scenario.rationale,
         "elapsed_seconds": round(elapsed, 3),
         "total_actions": len(actions),
-        "attribution": _attribution_counts(actions),
+        "attribution": attribution,
         "warden_exit_code": warden.returncode,
     }
 

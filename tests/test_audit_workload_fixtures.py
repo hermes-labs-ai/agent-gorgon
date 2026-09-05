@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from agent_warden import audit_demo
+
 HARNESS_DIR = Path(__file__).resolve().parent.parent / "examples" / "harness"
 sys.path.insert(0, str(HARNESS_DIR))
 
@@ -37,4 +39,16 @@ def test_owned_workload_matches_ground_truth(factory):
         f"observed {result['observed_verdict']!r} ({result['rationale']})"
     )
     assert result["attribution"]["attributed"] >= 1
+    assert result["observation_complete"] is True
     assert result["warden_exit_code"] == 0
+
+
+def test_safe_verdict_does_not_pass_without_attributed_observation(monkeypatch):
+    monkeypatch.setattr(audit_demo, "_read_actions", lambda _log_dir: [])
+
+    result = audit_demo.run_scenario(safe_workspace_write, keep=False)
+
+    assert result["observed_verdict"] == "SAFE"
+    assert result["attribution"]["attributed"] == 0
+    assert result["observation_complete"] is False
+    assert result["match"] is False
