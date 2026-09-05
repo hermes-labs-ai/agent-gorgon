@@ -1,5 +1,15 @@
 # agent-gorgon
 
+## The problem
+
+An autonomous agent process can spawn a child that reads `~/.ssh/id_rsa`, writes outside its
+workspace, or shells out to `curl`/`wget` -- and by default nothing watches for that at runtime
+except the agent's own (possibly compromised or simply buggy) judgment. Sandboxes and
+input-side filters don't cover this: they run before or around the agent, not against what its
+process tree actually does once it starts executing. Agent Gorgon is the userspace layer that
+watches the running process tree, applies a deterministic policy to what it sees, and can pause
+or kill a matching process -- calibrated first in a mode that changes nothing.
+
 **See what an autonomous agent process does, apply deterministic runtime policy, and keep evidence
 of every control decision.** Agent Gorgon observes the process tree plus file and network activity
 visible from user space. It can safely rehearse policy in audit-only mode, then attempt SIGSTOP or
@@ -269,6 +279,9 @@ Also see:
 - `AGENTS.md`
 - `CODE_OF_CONDUCT.md`
 - Audit checklist: `docs/AUDIT_CHECKLIST.md`
+- Concrete harness recipes: `docs/HARNESS_RECIPES.md`
+- Owned-process audit fixtures, attribution/false-trigger results, honest overhead measurements:
+  `examples/harness/` and `docs/EVIDENCE.md`
 - Layered plan: `docs/IMPLEMENTATION_PLAN_LAYERED.md`
 
 ## Related Hermes Labs tools
