@@ -17,7 +17,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ImportError:  # pragma: no cover - exercised on Python 3.9/3.10 CI
+    import tomli as tomllib
 
 import agent_gorgon.audit_demo as gorgon_audit_demo
 import agent_warden.audit_demo as warden_audit_demo
