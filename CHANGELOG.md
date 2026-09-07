@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `.zenodo.json` now carries the current project identity (title "Agent Gorgon",
+  version 0.2.0) so the Zenodo record minted from a GitHub release matches
+  `CITATION.cff` and `pyproject.toml`. The 0.2.0 release record
+  (10.5281/zenodo.22315879) was archived under the retired "agent-warden" title and
+  version 0.1.5 because this file was stale.
+
 ## [0.2.0] - 2026-09-04
 
 ### Problem
