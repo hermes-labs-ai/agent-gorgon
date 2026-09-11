@@ -19,6 +19,8 @@ SIGKILL for reviewed triggers when active controls are enabled.
 > command. The earlier `agent_warden` import and `agent-warden` commands remain available as
 > deprecated compatibility aliases. Version 0.2.0 adds the packaged `agent-gorgon-audit-demo`
 > command: a one-command, audit-only owned-process demo that works from a bare `pip install`.
+> Version 0.3.0 adds `agent-gorgon run`, which launches a command and watches the process tree it
+> creates, and the packaged `--scope coding-agent` starter scope.
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
 [![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
@@ -40,7 +42,7 @@ SIGKILL for reviewed triggers when active controls are enabled.
 ## Install and first run
 
 ```bash
-pip install agent-gorgon==0.2.0
+pip install agent-gorgon==0.3.0
 agent-gorgon run --audit-only --scope coding-agent -- <your agent command>
 ```
 

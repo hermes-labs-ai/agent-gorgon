@@ -3,7 +3,7 @@
 User-space runtime policy guard for autonomous AI agent processes. Polls the process tree plus
 file and network activity via psutil, applies a deterministic YAML scope, can SIGSTOP (HALT) or
 SIGKILL (KILL) the target tree, and keeps private forensic evidence. Distribution `agent-gorgon`,
-canonical import `agent_gorgon`, version 0.2.0. `agent_warden` / `agent-warden*` are deprecated
+canonical import `agent_gorgon`, version 0.3.0. `agent_warden` / `agent-warden*` are deprecated
 compatibility aliases (formerly Agent Warden).
 
 ## Commands
