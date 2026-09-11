@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mypy agent_gorgon agent_warden`, both `python -m build` targets) plus the `agent-gorgon*`
   console commands. Evidence paths, the `--audit-only` / `--no-llm` flags, the `qwen3:4b`
   advisory default and the version-pin locations are now stated as they are in the code.
-- `CONTRIBUTING.md`, `AGENTS.md` and `docs/AUDIT_CHECKLIST.md` use the Gorgon module names,
-  the CI check commands and the 0.2.0 install pin instead of the retired Warden ones.
+- `CONTRIBUTING.md` lists the CI check commands and the `agent_gorgon` module smoke
+  commands instead of the retired `agent_warden` ones; `AGENTS.md` names `agent-gorgon`
+  as the product; `docs/AUDIT_CHECKLIST.md` pins `agent-gorgon==0.2.0` instead of 0.1.7.
 
 ### Fixed
 - `.zenodo.json` now carries the current project identity (title "Agent Gorgon",

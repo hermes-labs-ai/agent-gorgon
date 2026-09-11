@@ -32,7 +32,7 @@ Local checks match `.github/workflows/ci.yml` exactly (Python 3.9-3.12 on Ubuntu
 The implementation lives in `agent_warden/`; `agent_gorgon/` is the canonical public namespace
 that re-exports it. Do not duplicate logic between the two.
 
-```
+```text
 agent_warden/
   warden.py            # The whole runtime: Scope (YAML parse + validation), LLMJudge,
                        #   IncidentLogger, Killswitch, ProcessObserver, Warden loop,
