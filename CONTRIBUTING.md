@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Agent Warden.
+Thanks for helping improve Agent Gorgon.
 
 ## Quick setup
 
@@ -16,10 +16,14 @@ pip install -e .[dev]
 Run these checks locally:
 
 ```bash
-pytest
-python -m agent_warden.warden --help
-python -m agent_warden.forensic_report --help
+pytest -q
+ruff check .
+mypy agent_gorgon agent_warden
+python -m agent_gorgon.warden --help
+python -m agent_gorgon.forensic_report --help
 ```
+
+These are the same commands `.github/workflows/ci.yml` runs.
 
 ## Pull request expectations
 
