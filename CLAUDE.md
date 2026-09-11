@@ -16,8 +16,10 @@ Local checks match `.github/workflows/ci.yml` exactly (Python 3.9-3.12 on Ubuntu
 - `ruff check .` -- Lint (whole repo, including tests, examples and the compat shim)
 - `mypy agent_gorgon agent_warden` -- Type check (the compat shim is not type-checked)
 - `python -m build && python -m build compat/suy-sideguy` -- Build both distributions
+- `agent-gorgon run --audit-only --scope starter -- python3 my_agent.py` -- Launch and watch a
+  command (audit-only default; `--enforce` for active controls). Options end at `--`.
 - `agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --no-llm --audit-only` -- Safe
-  calibration run against a disposable process (`starter` = packaged low-disruption scope)
+  calibration run against an already-running process (`starter` = packaged low-disruption scope)
 - `agent-gorgon --scope examples/scope.openclaw.yaml --agent-pid 12345 --poll 0.5` -- Active
   controls (only after reviewing the scope against a disposable target)
 - `agent-gorgon-forensic --last-hours 24 [--evidence-dir DIR --workspace DIR --out FILE]`
@@ -40,6 +42,8 @@ agent_warden/
   forensic_report.py   # Evidence aggregation -> private JSON incident summary (own CLI)
   intent_match.py      # Instruction/intent classification helpers
   audit_demo.py        # Owned-child-process audit demo scenarios + harness (own CLI)
+  run_command.py       # `agent-gorgon run`: spawn a command, watch its tree, relay signals,
+                       #   forward its exit status (dispatched from warden.entrypoint)
   audit_demo_scope.yaml# Scope template for the audit demo (WORKSPACE_GLOB is realpath'd in)
   scopes/low-disruption.yaml  # The packaged `--scope starter`
   cli.py scope.py enforcement.py observer.py policy.py models.py

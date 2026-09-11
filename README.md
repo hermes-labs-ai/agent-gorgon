@@ -121,6 +121,48 @@ counts, and honest watcher-overhead measurements, and exits nonzero if any scena
 verdict does not match its declared ground truth. See `docs/EVIDENCE.md` for a sample result and
 `docs/HARNESS_RECIPES.md` for how to add your own scenario.
 
+## Watch a command you launch
+
+`agent-gorgon run` removes the "find the PID first" step: it launches the command itself, watches
+the process tree that command creates, forwards the command's exit status, and writes the same
+evidence JSONL as PID mode.
+
+```bash
+agent-gorgon run --audit-only --scope starter -- python3 my_agent.py
+```
+
+It is **audit-only by default** -- verdicts are recorded and no SIGSTOP or SIGKILL is sent unless
+you pass `--enforce`. The last line is a one-line session summary on stderr, so the watched
+command keeps stdout to itself:
+
+```text
+agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 \
+  evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
+```
+
+Useful options: `--out FILE` writes the action evidence JSONL to an explicit path,
+`--scope FILE` selects a scope, `--poll` sets the poll interval, `--enforce` turns on active
+controls, and `--shutdown-grace` bounds how long a relayed signal is given.
+
+Behavior worth knowing before you wrap a real session:
+
+- The command runs in its own process group, and when stdin is a TTY that group is given the
+  terminal foreground, so interactive agents keep working and Ctrl-C reaches the command rather
+  than the watcher.
+- A SIGINT or SIGTERM sent to `agent-gorgon run` is relayed to the command's group, always
+  preceded by SIGCONT, so a paused tree is never left stopped.
+- The command's exit status is forwarded; a command killed by signal N exits `128+N`.
+- If the scope cannot be loaded or the watcher cannot start, the command is terminated rather
+  than left running unwatched.
+- Stdio the command inherited from `agent-gorgon run` (for example your own `> session.log`
+  redirect) is not attributed to the command. A file the command opens itself still is.
+
+PID mode remains available for attaching to an already-running process:
+
+```bash
+agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --no-llm --audit-only
+```
+
 ## When to use it
 
 Use Agent Gorgon when you run autonomous or semi-autonomous agents and need userspace runtime
