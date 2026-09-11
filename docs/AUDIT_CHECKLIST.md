@@ -1,7 +1,7 @@
 # Agent Gorgon Audit Checklist
 
 Use this checklist before deploying against important workloads or enabling
-`WARDEN_KILL_ON_FLAGS=1`. Start `agent-gorgon==0.2.0` with `--audit-only` for non-signaling
+`WARDEN_KILL_ON_FLAGS=1`. Start `agent-gorgon==0.3.0` with `--audit-only` for non-signaling
 calibration; omit it only after reviewing the policy and observed verdicts.
 
 ## A) Input Data Quality
