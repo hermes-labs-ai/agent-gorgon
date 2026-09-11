@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `agent-gorgon run [options] -- <command...>`: launch a command and watch the process tree it
+  creates, instead of looking up a PID by hand first. Audit-only by default (`--enforce` opts in
+  to active SIGSTOP/SIGKILL controls), forwards the command's exit status (`128+N` for a
+  signal death), inherits stdio so the command keeps stdout, writes the action evidence JSONL to
+  `--out`, and prints a one-line `agent-gorgon run: mode=... observed=... would-halt=...`
+  summary to stderr. The command runs in its own process group and is given the terminal
+  foreground when stdin is a TTY, so interactive agents stay usable; SIGINT/SIGTERM sent to the
+  watcher are relayed to that group after a SIGCONT, so a paused tree is never left stopped. If
+  the scope fails to load or the watcher cannot start, the spawned command is terminated instead
+  of running unwatched.
+
+### Fixed
+- Stdio a watched tree inherited from `agent-gorgon run` (for example the operator's own
+  `> session.log` redirect) is no longer reported as out-of-workspace file activity by the
+  agent. `ProcessObserver` accepts the launcher's fd 0/1/2 real paths and skips exactly those
+  descriptors; a path the agent opens itself gets a different fd and is still observed.
+
 ### Changed
 - `CLAUDE.md` now describes the actual layout: the implementation lives in `agent_warden/`
   (`warden.py` holds Scope, LLMJudge, IncidentLogger, Killswitch, ProcessObserver and the Warden

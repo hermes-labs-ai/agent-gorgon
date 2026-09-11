@@ -1068,8 +1068,19 @@ class Killswitch:
 class ProcessObserver:
     """Monitors an agent process for file, network, and subprocess activity."""
     
-    def __init__(self, agent_pid: int, scope: Scope | None = None):
+    def __init__(
+        self,
+        agent_pid: int,
+        scope: Scope | None = None,
+        inherited_stdio: dict[int, str] | None = None,
+    ):
         self.agent_pid = agent_pid
+        # fd -> realpath of a stdio stream the watched tree inherited from the
+        # launcher (`agent-gorgon run` redirecting its own stdout to a file).
+        # Those descriptors are the operator's choice, not agent-chosen file
+        # access, so reporting them as workspace violations is a false positive.
+        # A path the agent opens itself gets a different fd and is still seen.
+        self.inherited_stdio: dict[int, str] = dict(inherited_stdio or {})
         self._known_files: set[tuple[int, str, str]] = set()
         self._known_connections: set[tuple[int, str, int]] = set()
         self._active_connections: set[tuple[int, str, int]] = set()
@@ -1297,6 +1308,20 @@ class ProcessObserver:
                 ))
         self._scope_snapshot = current
 
+    def _is_inherited_stdio(self, fd: int | None, path: str) -> bool:
+        """True when (fd, path) is a stdio stream inherited from the launcher."""
+        if fd is None or not self.inherited_stdio:
+            return False
+        expected = self.inherited_stdio.get(fd)
+        if expected is None:
+            return False
+        if path == expected:
+            return True
+        try:
+            return os.path.realpath(path) == expected
+        except OSError:
+            return False
+
     def get_agent_pids(self) -> list[int]:
         pids = [self.agent_pid]
         try:
@@ -1334,6 +1359,8 @@ class ProcessObserver:
                             continue
                         fmode = getattr(f, 'mode', '') or ''
                         ffd = getattr(f, 'fd', None)
+                        if self._is_inherited_stdio(ffd, fpath):
+                            continue
                         file_key = (pid, fpath, fmode)
                         current_files.add(file_key)
                         if file_key not in self._known_files:
@@ -1455,10 +1482,13 @@ class Warden:
                  model: str = "qwen3:4b",
                  log_dir: str | None = None,
                  enable_llm: bool = True,
-                 audit_only: bool = False):
+                 audit_only: bool = False,
+                 inherited_stdio: dict[int, str] | None = None):
 
         self.scope = Scope(scope_path)
-        self.observer = ProcessObserver(agent_pid, scope=self.scope)
+        self.observer = ProcessObserver(
+            agent_pid, scope=self.scope, inherited_stdio=inherited_stdio
+        )
         self.judge = LLMJudge(model=model)
         self.killswitch = Killswitch(agent_pid)
         self.logger = IncidentLogger(log_dir=log_dir)
@@ -3948,6 +3978,8 @@ async def main():
     parser = argparse.ArgumentParser(
         description="Agent Gorgon - user-space runtime policy guard for an agent process tree",
         epilog=(
+            "To launch and watch a command in one step instead of supplying a PID, use "
+            "`agent-gorgon run [options] -- <command...>` (audit-only by default). "
             "Reactive polling is not syscall interception or a sandbox. HALT/KILL are signal "
             "attempts. Use --audit-only to record verdicts without "
             "sending SIGSTOP or SIGKILL."
@@ -4026,6 +4058,13 @@ async def main():
 
 
 def entrypoint() -> int:
+    """Dispatch `agent-gorgon run ...` to the wrapper; otherwise watch a PID."""
+    argv = sys.argv[1:]
+    if argv and argv[0] == "run":
+        # Imported lazily: run_command imports Warden from this module.
+        from .run_command import main as run_main
+
+        return run_main(argv[1:])
     asyncio.run(main())
     return 0
 
