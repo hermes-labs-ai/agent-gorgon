@@ -16,8 +16,8 @@ Local checks match `.github/workflows/ci.yml` exactly (Python 3.9-3.12 on Ubuntu
 - `ruff check .` -- Lint (whole repo, including tests, examples and the compat shim)
 - `mypy agent_gorgon agent_warden` -- Type check (the compat shim is not type-checked)
 - `python -m build && python -m build compat/suy-sideguy` -- Build both distributions
-- `agent-gorgon run --audit-only --scope starter -- python3 my_agent.py` -- Launch and watch a
-  command (audit-only default; `--enforce` for active controls). Options end at `--`.
+- `agent-gorgon run --audit-only --scope coding-agent -- python3 my_agent.py` -- Launch and watch
+  a command (audit-only default; `--enforce` for active controls). Options end at `--`.
 - `agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --no-llm --audit-only` -- Safe
   calibration run against an already-running process (`starter` = packaged low-disruption scope)
 - `agent-gorgon --scope examples/scope.openclaw.yaml --agent-pid 12345 --poll 0.5` -- Active
@@ -46,6 +46,8 @@ agent_warden/
                        #   forward its exit status (dispatched from warden.entrypoint)
   audit_demo_scope.yaml# Scope template for the audit demo (WORKSPACE_GLOB is realpath'd in)
   scopes/low-disruption.yaml  # The packaged `--scope starter`
+  scopes/coding-agent.yaml    # The packaged `--scope coding-agent` (mirrored in examples/;
+                       #   tests/test_coding_agent_scope.py asserts the two stay identical)
   cli.py scope.py enforcement.py observer.py policy.py models.py
                        # Thin re-export facades over warden.py, kept for import stability
   _version.py          # Single source of __version__
@@ -78,6 +80,10 @@ coerced if the model says anything else; it can never kill or suspend.
   layer. Tests must not require Ollama.
 - Scope YAML is the NESTED schema (`agent`, `filesystem`, `network`, `process`, `behavior`).
   Unknown sections/keys and the legacy flat `allow_*/deny_*` schema are rejected at load.
+  `filesystem.workspace_paths` is optional and names the trees walked for the create/delete
+  snapshot diff; without it the snapshot falls back to `allowed_paths`. Packaged scope names
+  resolve through `PACKAGED_SCOPES` in `warden.py`; add a name there and ship the YAML in
+  `agent_warden/scopes/`. Relative path patterns resolve against the process's cwd.
 - Version is pinned in four places that must agree: `pyproject.toml`, `agent_warden/_version.py`,
   the literal in `tests/test_gorgon_namespace.py`, and the README install line. Releases are the
   owner's call; `publish.yml` refuses a tag whose CHANGELOG entry still says `Unreleased`.

@@ -77,8 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--scope",
         default="starter",
         help=(
-            "Path to scope YAML, or 'starter' for the packaged low-disruption "
-            "scope (default: starter)"
+            "Path to scope YAML, or a packaged scope name: 'coding-agent' for a "
+            "coding-agent starter, 'starter' for the low-disruption scope "
+            "(default: starter)"
         ),
     )
     control = parser.add_mutually_exclusive_group()

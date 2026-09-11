@@ -178,6 +178,12 @@ class Scope:
         
         self.allowed_paths = self.fs.get('allowed_paths', [])
         self.forbidden_paths = self.fs.get('forbidden_paths', [])
+        # Trees whose create/delete snapshot diff is worth walking. Optional:
+        # when unset, the snapshot falls back to allowed_paths (historical
+        # behavior). They are separate concerns -- a scope legitimately ALLOWS
+        # broad read-only system trees like /usr/** that it would be pointless
+        # and expensive to walk for deleted files every second.
+        self.workspace_paths = self.fs.get('workspace_paths', [])
         self.forbidden_extensions = self.fs.get('forbidden_extensions', [])
         
         self.allowed_domains = self.net.get('allowed_domains', [])
@@ -234,6 +240,7 @@ class Scope:
             "agent": {"name", "pid"},
             "filesystem": {
                 "allowed_paths", "forbidden_paths", "forbidden_extensions",
+                "workspace_paths",
             },
             "network": {
                 "allowed_domains", "forbidden_domains", "allowed_ports",
@@ -263,6 +270,7 @@ class Scope:
         for section, keys in {
             "filesystem": (
                 "allowed_paths", "forbidden_paths", "forbidden_extensions",
+                "workspace_paths",
             ),
             "network": ("allowed_domains", "forbidden_domains"),
             "process": ("allowed_commands", "forbidden_commands"),
@@ -329,6 +337,12 @@ class Scope:
         path = os.path.expanduser(os.path.normpath(path))
         for pattern in patterns:
             expanded = os.path.expanduser(pattern)
+            if not os.path.isabs(expanded):
+                # A relative pattern such as "./**" means "the directory this
+                # scope is being enforced from" -- with `agent-gorgon run` that
+                # is the operator's repository. Observed paths are absolute, so
+                # without this a relative pattern silently matches nothing.
+                expanded = os.path.abspath(expanded)
             # Direct glob match
             if fnmatch.fnmatch(path, expanded):
                 return True
@@ -1127,6 +1141,11 @@ class ProcessObserver:
     def _compute_scope_roots(self, scope: Scope | None) -> list[str]:
         """Concrete directory roots to snapshot for each allowed-path glob.
 
+        Built from ``filesystem.workspace_paths`` when the scope declares it,
+        otherwise from ``filesystem.allowed_paths``. The two differ on purpose:
+        a scope may allow broad read-only trees (``/usr/**``) that must not be
+        walked for deleted files on every snapshot.
+
         A wildcard in a directory component is expanded only through that first
         component. For example, ``/tmp/my-agent_*/**`` becomes the concrete
         matching ``/tmp/my-agent_X`` directories, never the broad ``/tmp``
@@ -1147,7 +1166,10 @@ class ProcessObserver:
         self._scope_root_open_paths = {}
         roots: list[str] = []
         seen_real: set[str] = set()
-        for pat in getattr(scope, "allowed_paths", []) or []:
+        snapshot_patterns = (
+            getattr(scope, "workspace_paths", []) or getattr(scope, "allowed_paths", []) or []
+        )
+        for pat in snapshot_patterns:
             expanded = os.path.expandvars(os.path.expanduser(pat.strip()))
             parts = expanded.split(os.sep)
             wildcard_index = next(
@@ -1193,6 +1215,10 @@ class ProcessObserver:
                     else:
                         continue
                 root = os.path.normpath(root)
+                if not os.path.isabs(root):
+                    # Keep emitted snapshot paths absolute so evidence targets
+                    # match what check_filesystem sees for a relative pattern.
+                    root = os.path.abspath(root)
                 try:
                     real = os.path.realpath(root)
                 except OSError:
@@ -3944,13 +3970,25 @@ def find_process_by_name(name: str) -> int:
     return matches[0][0]
 
 
+#: Short names for scopes shipped inside the wheel, so `--scope <name>` works
+#: from a bare `pip install agent-gorgon` with no repository checkout.
+PACKAGED_SCOPES = {
+    "starter": "low-disruption.yaml",
+    "coding-agent": "coding-agent.yaml",
+}
+
+
 def resolve_scope_path(value: str) -> str:
-    """Resolve the packaged low-disruption starter without requiring a clone."""
-    if value != "starter":
+    """Resolve a packaged scope name without requiring a clone; else pass through."""
+    filename = PACKAGED_SCOPES.get(value)
+    if filename is None:
         return value
-    packaged = Path(__file__).with_name("scopes") / "low-disruption.yaml"
+    packaged = Path(__file__).with_name("scopes") / filename
     if not packaged.is_file():
-        raise ValueError("Packaged starter scope is missing from this installation")
+        raise ValueError(
+            f"Packaged scope '{value}' is missing from this installation "
+            f"(expected {packaged})"
+        )
     return str(packaged)
 
 
@@ -3987,7 +4025,10 @@ async def main():
     )
     parser.add_argument(
         '--scope', required=True,
-        help="Path to scope YAML, or 'starter' for the packaged low-disruption scope",
+        help=(
+            "Path to scope YAML, or a packaged scope name: "
+            "'starter' (low-disruption) or 'coding-agent'"
+        ),
     )
     target = parser.add_mutually_exclusive_group()
     target.add_argument(
