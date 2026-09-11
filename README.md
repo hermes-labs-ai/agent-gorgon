@@ -33,16 +33,36 @@ SIGKILL for reviewed triggers when active controls are enabled.
   HALT or KILL.
 - **Preserve an evidence trail.** JSONL actions and incident reports separate the policy verdict,
   signal attempt, and observed process outcome.
-- **Add a reactive layer around existing agents.** Agent Gorgon watches a supplied PID; it does not
-  require the target application to adopt an SDK.
+- **Add a reactive layer around existing agents.** `agent-gorgon run` wraps the command you already
+  use, and PID mode attaches to a process you did not launch. Neither requires the target
+  application to adopt an SDK.
 
-## Install
+## Install and first run
+
+```bash
+pip install agent-gorgon==0.2.0
+agent-gorgon run --audit-only --scope coding-agent -- <your agent command>
+```
+
+That is the whole first success: Agent Gorgon launches your command, watches the process tree it
+creates, and prints what it *would* have halted -- without pausing or terminating anything. When
+the command exits you get its exit status back plus one summary line:
+
+```text
+agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
+```
+
+Read that evidence file before you turn anything on. Active SIGSTOP/SIGKILL controls require an
+explicit `--enforce`, and they are worth enabling only once the flags you see are the ones you
+expect. [Watch a command you launch](#watch-a-command-you-launch) covers the details;
+[attaching to an already-running process](#advanced-attach-to-an-already-running-process) is
+the advanced path.
 
 The package, Python import, and primary command all use Gorgon names:
 
 ```bash
-pip install agent-gorgon==0.2.0
 agent-gorgon --help
+agent-gorgon run --help
 ```
 
 For Python integrations, import the canonical namespace:
@@ -64,7 +84,70 @@ omitted, after you have reviewed the policy against a disposable target.
 Support boundary: CI exercises Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or
 Python 3.13+ is currently `UNEVALUATED`; active controls and command reduction are POSIX-oriented.
 
-## See it work safely
+## Watch a command you launch
+
+`agent-gorgon run` removes the "find the PID first" step: it launches the command itself, watches
+the process tree that command creates, forwards the command's exit status, and writes the same
+evidence JSONL as PID mode.
+
+```bash
+agent-gorgon run --audit-only --scope coding-agent -- python3 my_agent.py
+agent-gorgon run --audit-only --scope coding-agent -- npm test
+```
+
+`--scope coding-agent` is a starter scope shipped inside the wheel, written for a coding agent
+(Claude Code, Codex, Aider, or your own harness). It allows the directory you launched from plus
+the toolchain caches and read-only system paths every build touches, so ordinary work stays quiet;
+it treats reads of `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`, `~/.netrc`,
+`~/.git-credentials` and key material (`.pem`, `.key`, `.p12`) as KILL verdicts, and `curl`,
+`wget`, `nc` and the other transfer tools as forbidden commands. Anything outside the allowed
+trees -- an out-of-tree `.env`, a connection to a host that is not on the allowlist -- is FLAGged
+rather than silently accepted. `--scope starter` remains the narrower low-disruption profile.
+
+Calibrate before you enforce. The packaged scope cannot know where your code lives beyond the
+launch directory, so run a real session in audit-only, read the evidence, and copy the file to
+add your own trees:
+
+```bash
+cp "$(python3 -c 'import agent_warden.scopes as s; print(s.__path__[0])')/coding-agent.yaml" .
+agent-gorgon run --audit-only --scope ./coding-agent.yaml -- python3 my_agent.py
+```
+
+It is **audit-only by default** -- verdicts are recorded and no SIGSTOP or SIGKILL is sent unless
+you pass `--enforce`. The last line is a one-line session summary on stderr, so the watched
+command keeps stdout to itself:
+
+```text
+agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 \
+  evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
+```
+
+Useful options: `--out FILE` writes the action evidence JSONL to an explicit path,
+`--scope FILE` selects a scope, `--poll` sets the poll interval, `--enforce` turns on active
+controls, and `--shutdown-grace` bounds how long a relayed signal is given.
+
+Behavior worth knowing before you wrap a real session:
+
+- The command runs in its own process group, and when stdin is a TTY that group is given the
+  terminal foreground, so interactive agents keep working and Ctrl-C reaches the command rather
+  than the watcher.
+- A SIGINT or SIGTERM sent to `agent-gorgon run` is relayed to the command's group, always
+  preceded by SIGCONT, so a paused tree is never left stopped.
+- The command's exit status is forwarded; a command killed by signal N exits `128+N`.
+- If the scope cannot be loaded or the watcher cannot start, the command is terminated rather
+  than left running unwatched.
+- Stdio the command inherited from `agent-gorgon run` (for example your own `> session.log`
+  redirect) is not attributed to the command. A file the command opens itself still is.
+
+To attach to a process you did not launch, see
+[Advanced: attach to an already-running process](#advanced-attach-to-an-already-running-process).
+
+## Advanced: attach to an already-running process
+
+`agent-gorgon run` covers the common case. PID mode is for attaching to a process you did not
+launch -- a long-lived agent daemon, a session someone else started, a process inside a supervisor.
+It takes an exact `--agent-pid` and is otherwise identical: the same scopes, the same verdicts, the
+same evidence.
 
 This POSIX demo creates a temporary command named `wget` that only runs `sleep`. Agent Gorgon sees
 the suspicious child name and records the HALT it would request, but `--audit-only` sends no signal
@@ -120,66 +203,6 @@ machine-readable JSON receipt with each scenario's expected vs. observed verdict
 counts, and honest watcher-overhead measurements, and exits nonzero if any scenario's observed
 verdict does not match its declared ground truth. See `docs/EVIDENCE.md` for a sample result and
 `docs/HARNESS_RECIPES.md` for how to add your own scenario.
-
-## Watch a command you launch
-
-`agent-gorgon run` removes the "find the PID first" step: it launches the command itself, watches
-the process tree that command creates, forwards the command's exit status, and writes the same
-evidence JSONL as PID mode.
-
-```bash
-agent-gorgon run --audit-only --scope coding-agent -- python3 my_agent.py
-```
-
-`--scope coding-agent` is a starter scope shipped inside the wheel, written for a coding agent
-(Claude Code, Codex, Aider, or your own harness). It allows the directory you launched from plus
-the toolchain caches and read-only system paths every build touches, so ordinary work stays quiet;
-it treats reads of `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`, `~/.netrc`,
-`~/.git-credentials` and key material (`.pem`, `.key`, `.p12`) as KILL verdicts, and `curl`,
-`wget`, `nc` and the other transfer tools as forbidden commands. Anything outside the allowed
-trees -- an out-of-tree `.env`, a connection to a host that is not on the allowlist -- is FLAGged
-rather than silently accepted. `--scope starter` remains the narrower low-disruption profile.
-
-Calibrate before you enforce. The packaged scope cannot know where your code lives beyond the
-launch directory, so run a real session in audit-only, read the evidence, and copy the file to
-add your own trees:
-
-```bash
-cp "$(python3 -c 'import agent_warden.scopes as s; print(s.__path__[0])')/coding-agent.yaml" .
-agent-gorgon run --audit-only --scope ./coding-agent.yaml -- python3 my_agent.py
-```
-
-It is **audit-only by default** -- verdicts are recorded and no SIGSTOP or SIGKILL is sent unless
-you pass `--enforce`. The last line is a one-line session summary on stderr, so the watched
-command keeps stdout to itself:
-
-```text
-agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 \
-  evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
-```
-
-Useful options: `--out FILE` writes the action evidence JSONL to an explicit path,
-`--scope FILE` selects a scope, `--poll` sets the poll interval, `--enforce` turns on active
-controls, and `--shutdown-grace` bounds how long a relayed signal is given.
-
-Behavior worth knowing before you wrap a real session:
-
-- The command runs in its own process group, and when stdin is a TTY that group is given the
-  terminal foreground, so interactive agents keep working and Ctrl-C reaches the command rather
-  than the watcher.
-- A SIGINT or SIGTERM sent to `agent-gorgon run` is relayed to the command's group, always
-  preceded by SIGCONT, so a paused tree is never left stopped.
-- The command's exit status is forwarded; a command killed by signal N exits `128+N`.
-- If the scope cannot be loaded or the watcher cannot start, the command is terminated rather
-  than left running unwatched.
-- Stdio the command inherited from `agent-gorgon run` (for example your own `> session.log`
-  redirect) is not attributed to the command. A file the command opens itself still is.
-
-PID mode remains available for attaching to an already-running process:
-
-```bash
-agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --no-llm --audit-only
-```
 
 ## When to use it
 
@@ -248,9 +271,10 @@ private (`0600`). Define retention and rotation appropriate to your environment.
 
 ## Recommended rollout strategy
 
-Start with `--audit-only` against a disposable process and a reviewed low-disruption scope. Add
-`--no-llm` for a deterministic no-advisory trial. Audit-only records verdicts but sends no SIGSTOP
-or SIGKILL. Remove it only after validating the policy and OS visibility for the exact workload;
+Start with `agent-gorgon run --audit-only` and a reviewed scope, against a workload you can afford
+to lose. Add `--no-llm` for a deterministic no-advisory trial. Audit-only records verdicts but sends no SIGSTOP
+or SIGKILL. Enable active controls (omit `--audit-only` in PID mode, or pass `--enforce` to
+`agent-gorgon run`) only after validating the policy and OS visibility for the exact workload;
 there is no interactive confirmation mode once active controls are enabled.
 
 ---
@@ -258,8 +282,8 @@ there is no interactive confirmation mode once active controls are enabled.
 ## Important safety caveats
 
 - `SIGKILL` is immediate and can interrupt legitimate work if policy is too broad.
-- Name targeting requires one unique exact process-name match; exact PID targeting remains the
-  recommended path.
+- Name targeting requires one unique exact process-name match. Prefer `agent-gorgon run`, which
+  watches exactly the process it launched, or an exact `--agent-pid`.
 - This project should be one part of a layered defense strategy.
 
 ## Verdict levels
