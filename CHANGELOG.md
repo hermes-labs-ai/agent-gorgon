@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `README.md` now leads with `pip install agent-gorgon && agent-gorgon run --audit-only --scope
+  coding-agent -- <your agent command>` as the first success, with the one-line summary and the
+  "read the evidence before you enforce" step alongside it. The wrapper section follows directly;
+  attaching to an already-running process is now "Advanced: attach to an already-running process".
+  Rollout guidance, the name-targeting caveat and the "watches a supplied PID" claim were updated
+  to describe both modes accurately. `AGENTS.md` and `llms.txt` list the wrapper first for the
+  same reason. No support claim changed: CI still covers Python 3.9-3.12 on Ubuntu and macOS,
+  Windows and Python 3.13+ remain UNEVALUATED.
+
 ### Added
 - Packaged `--scope coding-agent` starter scope (`agent_warden/scopes/coding-agent.yaml`, mirrored
   at `examples/scope.coding-agent.yaml`), written for a coding agent launched with

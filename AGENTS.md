@@ -4,7 +4,8 @@
 
 ## Use it for
 
-- watching process, file, and network behavior after the agent starts running
+- launching an agent command under observation (`agent-gorgon run`), or watching process, file,
+  and network behavior of a process that is already running
 - applying policy verdicts and attempting SIGSTOP/SIGKILL controls for HALT/KILL
 - generating forensic evidence after suspicious or blocked activity
 
@@ -18,10 +19,14 @@
 
 ```bash
 pip install -e ".[dev]"
+agent-gorgon run --audit-only --scope coding-agent -- <your agent command>
 agent-gorgon --scope starter --agent-pid 12345 --poll 0.5 --audit-only --no-llm
 agent-gorgon-forensic --last-hours 24
 pytest -q
 ```
+
+`agent-gorgon run` launches the command and watches the tree it creates (audit-only unless
+`--enforce`); the `--agent-pid` form attaches to a process that is already running.
 
 The `agent-warden` and `agent-warden-forensic` commands remain compatibility aliases.
 
