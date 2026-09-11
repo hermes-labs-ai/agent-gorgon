@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `CLAUDE.md` now describes the actual layout: the implementation lives in `agent_warden/`
+  (`warden.py` holds Scope, LLMJudge, IncidentLogger, Killswitch, ProcessObserver and the Warden
+  loop; the other modules are re-export facades), `agent_gorgon/` is the canonical namespace,
+  and the listed commands are the ones CI runs (`pytest -q`, `ruff check .`,
+  `mypy agent_gorgon agent_warden`, both `python -m build` targets) plus the `agent-gorgon*`
+  console commands. Evidence paths, the `--audit-only` / `--no-llm` flags, the `qwen3:4b`
+  advisory default and the version-pin locations are now stated as they are in the code.
+- `CONTRIBUTING.md` lists the CI check commands and the `agent_gorgon` module smoke
+  commands instead of the retired `agent_warden` ones; `AGENTS.md` names `agent-gorgon`
+  as the product; `docs/AUDIT_CHECKLIST.md` pins `agent-gorgon==0.2.0` instead of 0.1.7.
+
 ### Fixed
 - `.zenodo.json` now carries the current project identity (title "Agent Gorgon",
   version 0.2.0) so the Zenodo record minted from a GitHub release matches

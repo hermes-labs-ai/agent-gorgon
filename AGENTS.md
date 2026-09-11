@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`agent-warden` is a best-effort user-space polling guard for agent processes.
+`agent-gorgon` (formerly `agent-warden`) is a best-effort user-space polling guard for agent processes.
 
 ## Use it for
 
