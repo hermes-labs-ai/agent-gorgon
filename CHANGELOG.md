@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Packaged `--scope coding-agent` starter scope (`agent_warden/scopes/coding-agent.yaml`, mirrored
+  at `examples/scope.coding-agent.yaml`), written for a coding agent launched with
+  `agent-gorgon run`. It allows the launch directory (`./**`) plus the toolchain caches and
+  read-only system trees a build touches, so ordinary work stays quiet; reads of `~/.ssh`,
+  `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`, `~/.netrc`, `~/.git-credentials`,
+  `~/.npmrc` and key material (`.pem`, `.key`, `.p12`) are KILL verdicts; `curl`, `wget`, `nc`,
+  `socat`, `ssh`, `scp`, `rsync`, `sudo` and friends are forbidden commands; paste/exfil sinks are
+  forbidden domains. `resolve_scope_path` now resolves any name in the new `PACKAGED_SCOPES`
+  table, so `--scope coding-agent` works from a bare `pip install` in both `run` and PID mode.
+- Optional `filesystem.workspace_paths` scope key: the trees walked for the create/delete snapshot
+  diff. Allowing a broad read-only tree (`/usr/**`, `~/.cache/**`) no longer implies walking it
+  every snapshot. When the key is absent the snapshot falls back to `allowed_paths`, so existing
+  scopes are unaffected.
+
+### Fixed
+- Relative `allowed_paths` / `forbidden_paths` patterns (`"./**"`) now resolve against the
+  directory Agent Gorgon runs from instead of silently matching nothing, and a relative snapshot
+  root is made absolute so evidence targets stay absolute. With `agent-gorgon run` that directory
+  is the operator's repository, which is what makes `./**` mean "this project".
+
+### Added
 - `agent-gorgon run [options] -- <command...>`: launch a command and watch the process tree it
   creates, instead of looking up a PID by hand first. Audit-only by default (`--enforce` opts in
   to active SIGSTOP/SIGKILL controls), forwards the command's exit status (`128+N` for a

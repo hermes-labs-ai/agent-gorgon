@@ -1,0 +1,256 @@
+agent:
+  name: "coding-agent"
+  pid: null
+
+# Starter scope for a coding agent (Claude Code, Codex, Aider, or a custom
+# harness) launched with `agent-gorgon run --audit-only --scope coding-agent`.
+#
+# Calibrate before you enforce. Run a real session in audit-only first, read the
+# evidence JSONL, and widen `allowed_paths` for the toolchain caches your stack
+# actually uses. The point of audit-only is that a wrong line here costs you a
+# log entry, not a killed session.
+#
+# WORKSPACE: `allowed_paths` cannot name your repository for you -- a packaged
+# file has no way to know where you ran the command. It allows the common
+# checkout roots below plus the read-only toolchain paths every coding agent
+# touches. If your work lives elsewhere, copy this file and add your own tree:
+#
+#   cp "$(python3 -c 'import agent_warden.scopes as s; print(s.__path__[0])')/coding-agent.yaml" .
+#   # then add "/abs/path/to/your/repo/**" under filesystem.allowed_paths
+
+filesystem:
+  allowed_paths:
+    # The directory agent-gorgon was launched from. With `agent-gorgon run` that
+    # is your repository, so a coding agent's own checkout is in scope without
+    # editing this file. Relative patterns resolve against that launch cwd.
+    - "./**"
+    # Common checkout roots. Add your own; these are a starting point.
+    - "~/src/**"
+    - "~/code/**"
+    - "~/dev/**"
+    - "~/projects/**"
+    - "~/work/**"
+    - "~/repos/**"
+    - "~/workspace/**"
+    # Scratch space.
+    - "/tmp/**"
+    - "/var/folders/**"
+    # Toolchain and language caches a coding agent reads and writes constantly.
+    - "~/.cache/**"
+    - "~/.local/lib/**"
+    - "~/.local/share/**"
+    - "~/.npm/**"
+    - "~/.nvm/**"
+    - "~/.node_modules/**"
+    - "~/.pyenv/**"
+    - "~/.rustup/**"
+    - "~/.cargo/**"
+    - "~/.gradle/**"
+    - "~/.m2/**"
+    - "~/.go/**"
+    - "~/go/**"
+    - "~/.deno/**"
+    - "~/.bun/**"
+    # Agent CLI state (session files, settings, MCP config).
+    - "~/.claude/**"
+    - "~/.codex/**"
+    - "~/.config/**"
+    # Read-only system and interpreter paths. Every child process opens these.
+    - "/usr/**"
+    - "/lib/**"
+    - "/lib64/**"
+    - "/bin/**"
+    - "/sbin/**"
+    - "/opt/**"
+    - "/etc/ssl/**"
+    - "/etc/ca-certificates/**"
+    - "/dev/**"
+    - "/proc/**"
+    - "/sys/**"
+    - "/private/var/folders/**"
+    - "/System/**"
+    - "/Library/**"
+  # Only these trees are walked for the create/delete snapshot diff. Allowing a
+  # broad read-only tree above (/usr/**, ~/.cache/**) keeps ordinary toolchain
+  # reads quiet; walking it every second for deleted files would be pointless
+  # and expensive. Delete detection is what you want for your own code.
+  workspace_paths:
+    - "./**"
+  forbidden_paths:
+    # Credential stores. A coding agent has no reason to open these, and this is
+    # the single highest-signal rule in the file.
+    #
+    # Out-of-tree `.env*` files need no entry here: anything outside the allowed
+    # trees above is already FLAGged, so a read of /elsewhere/.env.production
+    # shows up in the evidence. An in-tree `.env` is ordinary development and is
+    # deliberately not treated as an incident.
+    - "~/.ssh/**"
+    - "~/.aws/**"
+    - "~/.gnupg/**"
+    - "~/.config/gcloud/**"
+    - "~/.config/gh/**"
+    - "~/.config/hub/**"
+    - "~/.docker/config.json"
+    - "~/.kube/**"
+    - "~/.netrc"
+    - "~/.npmrc"
+    - "~/.pypirc"
+    - "~/.git-credentials"
+    - "~/.password-store/**"
+    - "~/Library/Keychains/**"
+    - "/etc/shadow"
+  forbidden_extensions:
+    - ".pem"
+    - ".key"
+    - ".p12"
+    - ".pfx"
+    - ".keychain"
+    - ".keychain-db"
+
+network:
+  # The observer reports remote IP and port, not an authenticated hostname, so
+  # these names only apply to integrations that supply one. In practice this
+  # section means: connections are FLAGged, never silently accepted, and any
+  # connection that is not loopback shows up in the evidence for review.
+  allowed_domains:
+    - "localhost"
+    - "127.0.0.1"
+    - "::1"
+    - "api.anthropic.com"
+    - "api.openai.com"
+    - "openrouter.ai"
+    - "api.github.com"
+    - "github.com"
+    - "codeload.github.com"
+    - "objects.githubusercontent.com"
+    - "registry.npmjs.org"
+    - "pypi.org"
+    - "files.pythonhosted.org"
+    - "crates.io"
+    - "static.crates.io"
+    - "proxy.golang.org"
+    - "sum.golang.org"
+  forbidden_domains:
+    - "pastebin.com"
+    - "hastebin.com"
+    - "transfer.sh"
+    - "file.io"
+    - "0x0.st"
+    - "termbin.com"
+    - "ngrok.io"
+    - "requestbin.com"
+    - "webhook.site"
+  allowed_ports:
+    - 80
+    - 443
+    - 53
+    - 11434
+
+process:
+  # Ordinary development tooling. Anything not listed here is FLAGged, not
+  # killed: an unknown command is a thing to read in the evidence, not a thing
+  # to terminate a session over.
+  allowed_commands:
+    - "sh"
+    - "bash"
+    - "zsh"
+    - "dash"
+    - "env"
+    - "python"
+    - "python3"
+    - "pip"
+    - "pip3"
+    - "uv"
+    - "pytest"
+    - "ruff"
+    - "mypy"
+    - "node"
+    - "npm"
+    - "npx"
+    - "pnpm"
+    - "yarn"
+    - "bun"
+    - "deno"
+    - "tsc"
+    - "eslint"
+    - "prettier"
+    - "go"
+    - "cargo"
+    - "rustc"
+    - "make"
+    - "cmake"
+    - "gcc"
+    - "cc"
+    - "clang"
+    - "git"
+    - "gh"
+    - "jq"
+    - "ls"
+    - "cat"
+    - "head"
+    - "tail"
+    - "echo"
+    - "printf"
+    - "grep"
+    - "rg"
+    - "sed"
+    - "awk"
+    - "find"
+    - "fd"
+    - "sort"
+    - "uniq"
+    - "wc"
+    - "diff"
+    - "patch"
+    - "tar"
+    - "gzip"
+    - "unzip"
+    - "which"
+    - "true"
+    - "false"
+    - "sleep"
+    - "mkdir"
+    - "cp"
+    - "mv"
+    - "touch"
+    - "chmod"
+    - "test"
+    - "docker"
+    - "kubectl"
+    - "terraform"
+  forbidden_commands:
+    # curl/wget/nc are the outbound-transfer trio. The built-in uncertainty rule
+    # already reacts to curl/wget child names before ordinary command scope is
+    # applied; listing them keeps the intent explicit and covers the rest.
+    - "curl"
+    - "wget"
+    - "nc"
+    - "ncat"
+    - "netcat"
+    - "socat"
+    - "telnet"
+    - "ftp"
+    - "tftp"
+    - "ssh"
+    - "scp"
+    - "sftp"
+    - "rsync"
+    - "sudo"
+    - "su"
+    - "doas"
+    - "pkill"
+    - "killall"
+    - "shutdown"
+    - "reboot"
+    - "mkfs"
+    - "dd"
+    - "rm -rf /"
+    - "rm -rf ~"
+
+behavior:
+  # A coding agent is legitimately busy: builds open thousands of files. These
+  # thresholds tolerate that. Flag accumulation still never kills unless the
+  # operator sets WARDEN_KILL_ON_FLAGS=1.
+  flag_threshold: 25
+  flag_window: 300
+  max_actions_per_minute: 600

@@ -128,7 +128,25 @@ the process tree that command creates, forwards the command's exit status, and w
 evidence JSONL as PID mode.
 
 ```bash
-agent-gorgon run --audit-only --scope starter -- python3 my_agent.py
+agent-gorgon run --audit-only --scope coding-agent -- python3 my_agent.py
+```
+
+`--scope coding-agent` is a starter scope shipped inside the wheel, written for a coding agent
+(Claude Code, Codex, Aider, or your own harness). It allows the directory you launched from plus
+the toolchain caches and read-only system paths every build touches, so ordinary work stays quiet;
+it treats reads of `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`, `~/.netrc`,
+`~/.git-credentials` and key material (`.pem`, `.key`, `.p12`) as KILL verdicts, and `curl`,
+`wget`, `nc` and the other transfer tools as forbidden commands. Anything outside the allowed
+trees -- an out-of-tree `.env`, a connection to a host that is not on the allowlist -- is FLAGged
+rather than silently accepted. `--scope starter` remains the narrower low-disruption profile.
+
+Calibrate before you enforce. The packaged scope cannot know where your code lives beyond the
+launch directory, so run a real session in audit-only, read the evidence, and copy the file to
+add your own trees:
+
+```bash
+cp "$(python3 -c 'import agent_warden.scopes as s; print(s.__path__[0])')/coding-agent.yaml" .
+agent-gorgon run --audit-only --scope ./coding-agent.yaml -- python3 my_agent.py
 ```
 
 It is **audit-only by default** -- verdicts are recorded and no SIGSTOP or SIGKILL is sent unless
