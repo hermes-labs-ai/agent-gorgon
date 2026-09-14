@@ -1,0 +1,28 @@
+{
+  "@context": "https://w3id.org/codemeta/3.1",
+  "@type": "SoftwareSourceCode",
+  "name": "agent-gorgon",
+  "description": "User-space runtime policy guard for autonomous AI agents. Applies deterministic policy to process-tree observations, attempts SIGSTOP or SIGKILL controls for configured triggers, and records evidence without claiming complete visibility or attribution.",
+  "codeRepository": "https://github.com/hermes-labs-ai/agent-gorgon",
+  "version": "0.3.0",
+  "license": "https://spdx.org/licenses/Apache-2.0",
+  "programmingLanguage": "Python",
+  "runtimePlatform": "Python >=3.9",
+  "author": [
+    {
+      "@type": "Person",
+      "givenName": "Rolando",
+      "familyName": "Bosch Rodriguez",
+      "identifier": "https://orcid.org/0009-0005-4896-1112"
+    }
+  ],
+  "url": "https://pypi.org/project/agent-gorgon/",
+  "keywords": [
+    "runtime-agent-guard",
+    "ai-agent-security",
+    "runtime-monitoring",
+    "incident-response",
+    "policy-enforcement",
+    "forensics"
+  ]
+}
