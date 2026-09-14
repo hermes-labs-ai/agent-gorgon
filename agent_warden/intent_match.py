@@ -20,8 +20,16 @@ _INTENT_PATTERNS: list[tuple[str, list[str]]] = [
     ("NETWORK",       [r"\bdownload\b", r"\bupload\b", r"\bfetch\b", r"\bsend\b",
                        r"\bpost\b", r"\bpull\b", r"\bpush\b", r"\bhttp\b", r"\burl\b",
                        r"\bnetwork\b", r"\bconnect\b", r"\bapi\s+call\b"]),
-    ("CONFIG_CHANGE", [r"\bconfig(?:ure|uration)?\b", r"\bsetting\b",
-                       r"\benvironment\s+var\b", r"\binstall\b", r"\bset\s+up\b"]),
+    # Only *mutating* config phrasing may claim this intent. Bare nouns such as
+    # "config" or "setting" are checked before the READ bucket, so matching them
+    # on their own made every read-only instruction that merely named a config
+    # object ("read the config file") classify as CONFIG_CHANGE -- which permits
+    # WRITE, so a write during a read-only task was reported SAFE (fail-open).
+    ("CONFIG_CHANGE", [r"\bconfigure\b", r"\binstall\b", r"\bset\s+up\b",
+                       r"\b(?:change|modify|modified|edit|update|rewrite|write|set|add|"
+                       r"adjust|patch|reset|toggle|enable|disable)\s+"
+                       r"(?:\w+\s+){0,3}?"
+                       r"(?:config(?:uration)?s?|settings?|environment\s+var\w*)\b"]),
     ("WRITE",         [r"\bwrite\b", r"\bcreate\b", r"\bsave\b", r"\bstore\b",
                        r"\bmodif(?:y|ied)\b", r"\bupdate\b", r"\bedit\b", r"\bappend\b",
                        r"\bgenerate\b"]),
