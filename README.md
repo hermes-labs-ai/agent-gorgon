@@ -111,7 +111,7 @@ launch directory, so run a real session in audit-only, read the evidence, and co
 add your own trees:
 
 ```bash
-cp "$(python3 -c 'import agent_warden.scopes as s; print(s.__path__[0])')/coding-agent.yaml" .
+cp "$(python3 -c 'from agent_gorgon.warden import resolve_scope_path; print(resolve_scope_path("coding-agent"))')" .
 agent-gorgon run --audit-only --scope ./coding-agent.yaml -- python3 my_agent.py
 ```
 
