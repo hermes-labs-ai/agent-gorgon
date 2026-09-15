@@ -38,6 +38,11 @@ class Scenario:
     rationale: str
     process: subprocess.Popen
     workspace: Path
+    # When set, the scenario's child is held alive until `run_scenario` has
+    # confirmed the watcher attributed at least one action to it, instead of
+    # for a fixed wall-clock duration. Used by fixtures whose detection
+    # window would otherwise race watcher startup under CI load.
+    release_marker: Path | None = None
 
 
 def _run_wrapper(script: str, workspace: Path) -> subprocess.Popen:
@@ -88,17 +93,48 @@ def suspicious_child_name(workspace: Path, hold_seconds: float = 2.0) -> Scenari
     Agent Gorgon reacts to the *name* of the spawned child, not what the
     binary actually does, which is why audit-only calibration matters before
     trusting it against a real curl/wget-named process.
+
+    The `wget`-named child is held alive until `run_scenario` confirms the
+    watcher has actually attributed an action to it (via `release_marker`),
+    not for a fixed wall-clock duration. A fixed hold races watcher startup
+    under a loaded runner: if the child exits before the watcher's first poll
+    lands, the verdict comes back SAFE even though the rule is correct. A
+    generous `max_hold_seconds` safety cap still bounds worst case so the
+    fixture can never hang if something goes wrong upstream.
     """
     fake_bin = workspace / "wget"
     sleep_path = shutil.which("sleep") or "/bin/sleep"
     fake_bin.symlink_to(sleep_path)
-    script = f'"{fake_bin}" {hold_seconds} & wait'
+    release_marker = workspace / ".release_marker"
+    max_hold_seconds = max(hold_seconds, 15.0)
+    # Run the wget-named process with a long safety-cap sleep, then poll for
+    # either the release marker (written once the watcher has observed it)
+    # or the safety-cap deadline, and kill it as soon as either fires.
+    script = textwrap.dedent(
+        f"""
+        "{fake_bin}" {max_hold_seconds} &
+        child_pid=$!
+        deadline=$(( $(date +%s) + {int(max_hold_seconds)} ))
+        while kill -0 "$child_pid" 2>/dev/null; do
+            if [ -f "{release_marker}" ]; then
+                break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+                break
+            fi
+            sleep 0.02
+        done
+        kill "$child_pid" 2>/dev/null
+        wait "$child_pid" 2>/dev/null
+        """
+    ).strip()
     return Scenario(
         name="suspicious_child_name",
         expected_verdict="HALT",
         rationale="Child process name 'wget' matches the built-in outbound-transfer HALT rule.",
         process=_run_wrapper(script, workspace),
         workspace=workspace,
+        release_marker=release_marker,
     )
 
 
@@ -215,20 +251,45 @@ def run_scenario(factory, keep: bool) -> dict:
     scope_path = _render_scope(workspace, log_dir)
 
     start = time.monotonic()
-    warden = subprocess.run(
+    warden_proc = subprocess.Popen(
         _warden_command(scope_path, scenario.process.pid, log_dir, poll=0.05),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=30,
         text=True,
     )
+
+    if scenario.release_marker is not None:
+        # Poll the watcher's own evidence log until it has attributed at
+        # least one action to this scenario's child, then release the child
+        # (via the marker file its wrapper script watches for) instead of
+        # racing a fixed wall-clock hold against watcher startup. Bounded by
+        # the wrapper's own safety-cap sleep, so this cannot hang. Always
+        # touch the marker on the way out (attributed, timed out, or the
+        # warden/child exited early) so the child is never left waiting on a
+        # marker nobody will create, which would otherwise starve the later
+        # `scenario.process.wait(timeout=5)` past its bound.
+        deadline = time.monotonic() + 25.0
+        while time.monotonic() < deadline:
+            if _attribution_counts(_read_actions(log_dir))["attributed"] >= 1:
+                break
+            if warden_proc.poll() is not None or scenario.process.poll() is not None:
+                break
+            time.sleep(0.02)
+        scenario.release_marker.touch()
+
+    try:
+        stdout, _ = warden_proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        warden_proc.kill()
+        stdout, _ = warden_proc.communicate()
+    warden_returncode = warden_proc.returncode
     elapsed = time.monotonic() - start
     scenario.process.wait(timeout=5)
 
     actions = _read_actions(log_dir)
     observed = _highest_verdict(actions)
     attribution = _attribution_counts(actions)
-    observation_complete = attribution["attributed"] >= 1 and warden.returncode == 0
+    observation_complete = attribution["attributed"] >= 1 and warden_returncode == 0
     result = {
         "scenario": scenario.name,
         "expected_verdict": scenario.expected_verdict,
@@ -239,8 +300,9 @@ def run_scenario(factory, keep: bool) -> dict:
         "elapsed_seconds": round(elapsed, 3),
         "total_actions": len(actions),
         "attribution": attribution,
-        "warden_exit_code": warden.returncode,
+        "warden_exit_code": warden_returncode,
     }
+    del stdout  # captured for debugging only; not part of the evidence contract
 
     if not keep:
         shutil.rmtree(workspace, ignore_errors=True)
