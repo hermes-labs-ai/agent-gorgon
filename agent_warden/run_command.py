@@ -274,7 +274,11 @@ def _redirect_action_log(warden: Warden, out: str) -> Path:
     """Point the action JSONL at an explicit path, truncated and 0600."""
     path = Path(out).expanduser()
     if path.parent and not path.parent.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
+        # Owner-only like every other evidence directory in this codebase
+        # (see _ensure_private_directory / forensic_report._write_private_json).
+        # Guarded by the exists() check above so an operator-selected existing
+        # directory is never chmod'd.
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with _open_private_text(path, "w"):
         pass
     warden.logger.action_log_path = path
