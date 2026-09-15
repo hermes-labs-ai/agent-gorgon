@@ -263,17 +263,19 @@ def run_scenario(factory, keep: bool) -> dict:
         # least one action to this scenario's child, then release the child
         # (via the marker file its wrapper script watches for) instead of
         # racing a fixed wall-clock hold against watcher startup. Bounded by
-        # the wrapper's own safety-cap sleep, so this cannot hang.
+        # the wrapper's own safety-cap sleep, so this cannot hang. Always
+        # touch the marker on the way out (attributed, timed out, or the
+        # warden/child exited early) so the child is never left waiting on a
+        # marker nobody will create, which would otherwise starve the later
+        # `scenario.process.wait(timeout=5)` past its bound.
         deadline = time.monotonic() + 25.0
         while time.monotonic() < deadline:
             if _attribution_counts(_read_actions(log_dir))["attributed"] >= 1:
-                scenario.release_marker.touch()
                 break
             if warden_proc.poll() is not None or scenario.process.poll() is not None:
                 break
             time.sleep(0.02)
-        else:
-            scenario.release_marker.touch()
+        scenario.release_marker.touch()
 
     try:
         stdout, _ = warden_proc.communicate(timeout=30)
