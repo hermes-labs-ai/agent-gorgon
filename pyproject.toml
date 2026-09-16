@@ -10,10 +10,11 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 authors = [{ name = "Rolando Bosch" }]
-keywords = ["runtime-agent-guard", "ai-agent-security", "runtime-monitoring", "incident-response", "policy-enforcement", "forensics"]
+keywords = ["runtime-agent-guard", "ai-agent-security", "runtime-monitoring", "incident-response", "policy-enforcement", "forensics", "agent-security", "sandbox"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.9",
@@ -22,6 +23,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Security",
   "Topic :: System :: Monitoring",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
   "psutil>=7.2.2",
@@ -51,6 +53,7 @@ Repository = "https://github.com/hermes-labs-ai/agent-gorgon"
 Documentation = "https://github.com/hermes-labs-ai/agent-gorgon#readme"
 Issues = "https://github.com/hermes-labs-ai/agent-gorgon/issues"
 Changelog = "https://github.com/hermes-labs-ai/agent-gorgon/blob/main/CHANGELOG.md"
+Source = "https://github.com/hermes-labs-ai/agent-gorgon"
 
 [tool.setuptools]
 packages = ["agent_gorgon", "agent_gorgon.scopes", "agent_warden", "agent_warden.scopes"]
