@@ -262,10 +262,13 @@ private (`0600`). Define retention and rotation appropriate to your environment.
 
 ## Privacy and network behavior
 
-- Agent Gorgon has no telemetry or external reporting client.
-- By default it probes `http://localhost:11434` and, when Ollama is available, sends the current
-  action, a scope summary, and up to 20 recent actions to that local service for non-enforcing
-  advisory analysis. Use `--no-llm` to disable the probe and advisory calls.
+- Agent Gorgon itself has no telemetry or external reporting client: it does not send observed
+  data to a Hermes Labs service or another remote endpoint.
+- Unless you pass `--no-llm`, it makes a loopback HTTP probe to
+  `http://localhost:11434` to check for Ollama. Only when the configured model is available does
+  it send the current action, a scope summary, and up to 20 recent actions to that **local** Ollama
+  service for non-enforcing advisory analysis. `--no-llm` disables both the loopback probe and
+  those advisory calls.
 - Remote IP policy checks do not perform reverse DNS. Raw IPs must be allowed or forbidden
   explicitly; hostname allowlists apply only when a hostname is supplied by an integration.
 - Local JSONL evidence contains full observed paths, commands, and remote IP/port values. Protect
