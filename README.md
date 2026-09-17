@@ -43,8 +43,13 @@ SIGKILL for reviewed triggers when active controls are enabled.
 
 ```bash
 pip install agent-gorgon==0.3.0
+agent-gorgon --version
 agent-gorgon run --audit-only --scope coding-agent -- <your agent command>
 ```
+
+The version readback confirms the installed command before it observes a workload. CI exercises
+Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or Python 3.13+ is currently
+`UNEVALUATED`; active controls and command reduction are POSIX-oriented.
 
 That is the whole first success: Agent Gorgon launches your command, watches the process tree it
 creates, and prints what it *would* have halted -- without pausing or terminating anything. When
@@ -82,9 +87,6 @@ The shim's source and its deprecation window live in
 
 Requires Python 3.9+. Start with `--audit-only`; active controls are enabled only when that flag is
 omitted, after you have reviewed the policy against a disposable target.
-
-Support boundary: CI exercises Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or
-Python 3.13+ is currently `UNEVALUATED`; active controls and command reduction are POSIX-oriented.
 
 ## Watch a command you launch
 
