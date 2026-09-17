@@ -208,6 +208,43 @@ counts, and honest watcher-overhead measurements, and exits nonzero if any scena
 verdict does not match its declared ground truth. See `docs/EVIDENCE.md` for a sample result and
 `docs/HARNESS_RECIPES.md` for how to add your own scenario.
 
+### Choose the command by what you are evaluating
+
+- `agent-gorgon run --audit-only --scope coding-agent -- <command>` launches a command you own,
+  watches the tree it creates, and writes action JSONL plus a one-line summary. It is the
+  audit-only path for a real workload.
+- `agent-gorgon --scope starter --agent-pid <pid> --audit-only --no-llm` attaches to one exact
+  process that is already running. It is not a process-name search and does not launch a command.
+- `agent-gorgon-audit-demo --out RECEIPT.json` runs the packaged, owned SAFE/HALT/KILL fixtures in
+  audit-only mode. It is the reproducible receipt path, not evidence about your own workload.
+
+After the audit demo exits zero, read the receipt before treating it as a usable calibration:
+
+```bash
+agent-gorgon-audit-demo --out /tmp/gorgon_evidence.json
+python3 - /tmp/gorgon_evidence.json <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    receipt = json.load(handle)
+
+required = {"generated_at", "scenarios", "false_trigger_or_miss_count", "overhead"}
+assert required <= receipt.keys()
+assert receipt["false_trigger_or_miss_count"] == 0
+assert receipt["scenarios"]
+for scenario in receipt["scenarios"]:
+    assert {"expected_verdict", "observed_verdict", "match", "observation_complete"} <= scenario.keys()
+    assert scenario["match"] and scenario["observation_complete"]
+
+print(f"receipt verified: {len(receipt['scenarios'])} owned audit-only scenarios")
+PY
+```
+
+This establishes that the built-in fixtures matched their declared ground truth with at least one
+attributed observation per scenario. It does not establish that a policy covers a different
+workload, OS, process tree, or poll interval.
+
 ## When to use it
 
 Use Agent Gorgon when you run autonomous or semi-autonomous agents and need userspace runtime
