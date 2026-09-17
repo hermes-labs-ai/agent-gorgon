@@ -4023,6 +4023,7 @@ async def main():
             "sending SIGSTOP or SIGKILL."
         ),
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         '--scope', required=True,
         help=(

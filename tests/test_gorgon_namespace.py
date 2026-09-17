@@ -38,3 +38,15 @@ def test_canonical_module_cli_resolves() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout
+
+
+def test_canonical_module_cli_reports_the_packaged_version() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "agent_gorgon.warden", "--version"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.rstrip().endswith("0.3.0")
