@@ -41,8 +41,47 @@ SIGKILL for reviewed triggers when active controls are enabled.
 
 ## Install and first run
 
+The packaged audit demo is the safe first run: it spawns three processes it owns (no real agent,
+no network access, no credentials needed), watches them in `--audit-only` mode -- which never
+sends SIGSTOP/SIGKILL -- and writes a machine-readable JSON receipt comparing the observed
+verdict against a declared ground truth for each scenario.
+
 ```bash
 pip install agent-gorgon==0.3.0
+agent-gorgon-audit-demo --out /tmp/agent-gorgon-audit-demo.json
+```
+
+This is the real output from running that command (Python 3.13, macOS/Darwin, this environment):
+
+```json
+{
+  "generated_at": "2026-09-18T08:24:43Z",
+  "false_trigger_or_miss_count": 1,
+  "scenarios": [
+    {"scenario": "safe_workspace_write", "expected_verdict": "SAFE", "observed_verdict": "SAFE", "match": true},
+    {"scenario": "suspicious_child_name", "expected_verdict": "HALT", "observed_verdict": "SAFE", "match": false},
+    {"scenario": "forbidden_extension_write", "expected_verdict": "KILL", "observed_verdict": "KILL", "match": true}
+  ]
+}
+```
+
+exit status: `1`
+
+`agent-gorgon-audit-demo` exits `0` only when every scenario's `observed_verdict` matches its
+`expected_verdict`, and nonzero otherwise (`false_trigger_or_miss_count` says how many did not);
+it never exits nonzero because a control action fired, since `--audit-only` never sends
+SIGSTOP/SIGKILL. On this run the `suspicious_child_name` fixture wasn't attributed
+(`"total_actions": 0`) inside this sandboxed shell, most likely a process-visibility limit of
+*this* execution environment, not a change made here -- see `docs/EVIDENCE.md` for a full
+three-for-three receipt captured on macOS ARM outside a sandbox. Either way, no file was modified
+and no process was paused or killed: that's what "audit-only" means, and it held regardless of
+the verdict match. Read the receipt at the `--out` path before treating any run as a passing
+calibration.
+
+Once you've seen the demo's audit-only behavior, wrap a real workload with `agent-gorgon run`
+(same audit-only guarantee, no signals sent unless you add `--enforce`):
+
+```bash
 agent-gorgon --version
 agent-gorgon run --audit-only --scope coding-agent -- <your agent command>
 ```
@@ -51,9 +90,9 @@ The version readback confirms the installed command before it observes a workloa
 Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or Python 3.13+ is currently
 `UNEVALUATED`; active controls and command reduction are POSIX-oriented.
 
-That is the whole first success: Agent Gorgon launches your command, watches the process tree it
-creates, and prints what it *would* have halted -- without pausing or terminating anything. When
-the command exits you get its exit status back plus one summary line:
+Agent Gorgon launches your command, watches the process tree it creates, and prints what it
+*would* have halted -- without pausing or terminating anything. When the command exits you get
+its exit status back plus one summary line:
 
 ```text
 agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
