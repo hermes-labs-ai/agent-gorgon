@@ -14,7 +14,7 @@ import agent_gorgon
 from agent_gorgon import warden as canonical_warden
 import agent_warden
 from agent_warden import warden as legacy_warden
-assert agent_gorgon.__version__ == '0.3.0'
+assert agent_gorgon.__version__ == '0.3.1'
 assert agent_warden.__version__ == agent_gorgon.__version__
 assert legacy_warden.Scope is canonical_warden.Scope
 assert legacy_warden.Verdict is canonical_warden.Verdict
@@ -49,4 +49,4 @@ def test_canonical_module_cli_reports_the_packaged_version() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.rstrip().endswith("0.3.0")
+    assert result.stdout.rstrip().endswith("0.3.1")
