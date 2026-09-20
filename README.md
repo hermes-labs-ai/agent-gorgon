@@ -47,7 +47,7 @@ sends SIGSTOP/SIGKILL -- and writes a machine-readable JSON receipt comparing th
 verdict against a declared ground truth for each scenario.
 
 ```bash
-pip install agent-gorgon==0.3.0
+pip install agent-gorgon==0.3.1
 agent-gorgon-audit-demo --out /tmp/agent-gorgon-audit-demo.json
 ```
 

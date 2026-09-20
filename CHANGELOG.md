@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-19
+
+### Fixed
+
+- Read-only instructions that merely name a configuration object (for example, "read the config
+  file") no longer classify as `CONFIG_CHANGE`. Previously, that broad classification permitted
+  an unsanctioned `file_write` to be reported as `SAFE`; these instructions now fall through to
+  `READ`, where the mismatch is surfaced. Mutating configuration phrasing remains classified as
+  `CONFIG_CHANGE`, with regression coverage for both paths.
+
+This is a bounded correction to deterministic intent classification. Agent Gorgon remains a
+best-effort user-space polling guard: audit-only mode sends no signals, and active controls are
+reactive rather than a complete prevention boundary.
+
 ## [0.3.0] - 2026-09-11
 
 ### Problem
