@@ -2,7 +2,7 @@
 
 <h1>Agent Gorgon</h1>
 
-<img src="assets/agent-gorgon-artwork.jpg" width="500" alt="Agent Gorgon artwork: a watchful eye encircled by two coral serpents" />
+<img src="assets/agent-gorgon-artwork.png" width="760" alt="Agent Gorgon artwork: a watchful eye encircled by two coral serpents" />
 
 <p><strong>Audit coding agents at runtime. Enforce deterministic policy when you are ready.</strong></p>
 
