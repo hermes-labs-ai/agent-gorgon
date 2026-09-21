@@ -160,7 +160,7 @@ CI exercises Python 3.9–3.12 on Ubuntu. Active controls are POSIX-oriented. Tr
 
 Agent Gorgon includes no Hermes Labs telemetry or remote reporting client.
 
-Unless `--no-llm` is used, it may probe the configured local Ollama service, which defaults to `http://localhost:11434`, and may send local action context to that configured endpoint for advisory analysis. `--no-llm` disables that path.
+Unless `--no-llm` is used, Agent Gorgon probes the local Ollama service at `http://localhost:11434` and may send local action context to it for advisory analysis. `--no-llm` disables that path.
 
 Local evidence can contain sensitive paths, commands, and remote IP/port observations. Protect it as operationally sensitive data.
 
