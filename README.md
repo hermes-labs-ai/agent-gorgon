@@ -1,5 +1,9 @@
 # agent-gorgon
 
+<p align="center">
+  <img src="assets/agent-gorgon-artwork.jpg" width="620" alt="Agent Gorgon artwork: a watchful eye encircled by two coral serpents" />
+</p>
+
 ## The problem
 
 An autonomous agent process can spawn a child that reads `~/.ssh/id_rsa`, writes outside its
