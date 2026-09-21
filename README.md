@@ -8,6 +8,10 @@
 
 <p>Watch process, file, and network activity visible from user space, rehearse policy without sending signals, and keep a local evidence trail.</p>
 
+<p>Agent Gorgon is developed by <a href="https://hermes-labs.ai">Hermes Labs</a>.</p>
+
+<p>Hermes Labs studies failure modes in agent and LLM systems, develops open-source tools that treat language as part of the runtime, and works with teams to remediate reliability failures in production.</p>
+
 <p>
 <a href="#quickstart">Quickstart</a> ·
 <a href="docs/EVIDENCE.md">Evidence</a> ·
@@ -19,8 +23,6 @@
 <a href="https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg"></a>
 <a href="https://pypi.org/project/agent-gorgon/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/agent-gorgon"></a>
 <a href="https://pypi.org/project/agent-gorgon/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/agent-gorgon"></a>
-
-<p><sub><strong>Agent Gorgon by <a href="https://hermes-labs.ai">Hermes Labs</a></strong> — infrastructure for agents that act on real systems.</sub></p>
 
 </div>
 
@@ -179,8 +181,6 @@ Local evidence can contain sensitive paths, commands, and remote IP/port observa
 - [Layered implementation plan](docs/IMPLEMENTATION_PLAN_LAYERED.md)
 - [Contributor agent guide](AGENTS.md)
 
-## Project
-
-Agent Gorgon is maintained by [Hermes Labs](https://hermes-labs.ai), an agent-driven infrastructure company building systems for when language becomes execution.
+## License and security
 
 Distributed under the Apache-2.0 License. See [LICENSE](LICENSE). Report security issues according to [SECURITY.md](SECURITY.md).

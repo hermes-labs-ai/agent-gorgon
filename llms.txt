@@ -28,5 +28,5 @@ Do not use this repo as:
 
 ## About Hermes Labs
 
-Hermes Labs is an AI reliability engineering studio for production agents and LLM applications.
+Hermes Labs studies failure modes in agent and LLM systems, develops open-source tools that treat language as part of the runtime, and works with teams to remediate reliability failures in production.
 More at [hermes-labs.ai](https://hermes-labs.ai).
