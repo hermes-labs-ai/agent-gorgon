@@ -9,7 +9,7 @@ Current support target: latest `main` branch and newest tagged release.
 Please **do not** open public issues for suspected vulnerabilities.
 
 Preferred process:
-1. Email **lpcisystems@gmail.com** (or use a private GitHub Security Advisory, if enabled).
+1. Email **roli@hermes-labs.ai** (or use a private GitHub Security Advisory, if enabled).
 2. Include reproduction steps, expected impact, and any known mitigation.
 3. You should receive acknowledgment as soon as possible.
 
