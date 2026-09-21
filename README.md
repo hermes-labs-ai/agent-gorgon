@@ -1,477 +1,212 @@
-# agent-gorgon
+<div align="center">
 
-<p align="center">
-  <img src="assets/agent-gorgon-artwork.jpg" width="620" alt="Agent Gorgon artwork: a watchful eye encircled by two coral serpents" />
-</p>
+<h1>Agent Gorgon</h1>
+
+<img src="assets/agent-gorgon-artwork.jpg" width="620" alt="Agent Gorgon artwork: a watchful eye encircled by two coral serpents" />
+
+<p><strong>Runtime policy guard for AI agent processes. Watch what an autonomous agent actually does, apply deterministic policy, and keep structured forensic receipts.</strong></p>
+
+<p><a href="https://github.com/hermes-labs-ai/agent-gorgon">Agent Gorgon</a> is built by <a href="https://hermes-labs.ai">Hermes Labs</a>, an agent-driven infrastructure company building systems for when language becomes execution.</p>
+
+<a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-green.svg"></a>
+<a href="https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg"></a>
+<a href="https://pypi.org/project/agent-gorgon/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/agent-gorgon"></a>
+<a href="https://pypi.org/project/agent-gorgon/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/agent-gorgon"></a>
+
+</div>
 
 ## The problem
 
-An autonomous agent process can spawn a child that reads `~/.ssh/id_rsa`, writes outside its
-workspace, or shells out to `curl`/`wget` -- and by default nothing watches for that at runtime
-except the agent's own (possibly compromised or simply buggy) judgment. Sandboxes and
-input-side filters don't cover this: they run before or around the agent, not against what its
-process tree actually does once it starts executing. Agent Gorgon is the userspace layer that
-watches the running process tree, applies a deterministic policy to what it sees, and can pause
-or kill a matching process -- calibrated first in a mode that changes nothing.
+Autonomous coding agents need shell access to be useful. Once they have it, they can spawn child processes, open network connections, read credentials, write outside the workspace, or run destructive commands.
 
-**See what an autonomous agent process does, apply deterministic runtime policy, and keep evidence
-of every control decision.** Agent Gorgon observes the process tree plus file and network activity
-visible from user space. It can safely rehearse policy in audit-only mode, then attempt SIGSTOP or
-SIGKILL for reviewed triggers when active controls are enabled.
+Prompt guardrails and input filters can reduce risk before execution, but they do not observe everything the process tree actually does on the host after code starts running. Full kernel sandboxes can provide stronger isolation, but they also change the execution environment and are not always how developers want to run local coding agents.
 
-> Version 0.1.8 made `agent_gorgon` the canonical Python import and `agent-gorgon` the primary
-> command. The earlier `agent_warden` import and `agent-warden` commands remain available as
-> deprecated compatibility aliases. Version 0.2.0 adds the packaged `agent-gorgon-audit-demo`
-> command: a one-command, audit-only owned-process demo that works from a bare `pip install`.
-> Version 0.3.0 adds `agent-gorgon run`, which launches a command and watches the process tree it
-> creates, and the packaged `--scope coding-agent` starter scope.
+Agent Gorgon adds a **reactive user-space runtime layer** around an existing agent process. It watches process, file, and network activity available from user space, applies deterministic policy, and records what it observed and what control action it attempted.
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
-[![CI](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg)](https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/agent-gorgon)](https://pypi.org/project/agent-gorgon/)
-[![Python versions](https://img.shields.io/pypi/pyversions/agent-gorgon)](https://pypi.org/project/agent-gorgon/)
+Start in audit-only mode. See what would have been flagged, halted, or killed. Review the evidence. Then decide whether to enable active controls.
 
-## Why teams use it
+## What it does
 
-- **Calibrate before signaling.** Audit-only mode shows which actions would HALT or KILL without
-  pausing or terminating the target.
-- **Keep control deterministic.** The optional local LLM is advisory-only; it cannot authorize a
-  HALT or KILL.
-- **Preserve an evidence trail.** JSONL actions and incident reports separate the policy verdict,
-  signal attempt, and observed process outcome.
-- **Add a reactive layer around existing agents.** `agent-gorgon run` wraps the command you already
-  use, and PID mode attaches to a process you did not launch. Neither requires the target
-  application to adopt an SDK.
+- **Wrap an existing agent command.** Use `agent-gorgon run` around Claude Code, Codex CLI, Aider, a custom harness, or another terminal workload without requiring that tool to adopt an SDK.
+- **Attach to an existing PID.** Monitor a process you did not launch through Agent Gorgon.
+- **Audit before enforcing.** Audit-only mode records verdicts without sending `SIGSTOP` or `SIGKILL`.
+- **Apply deterministic controls.** Reviewed HALT and KILL policy can attempt process-tree signaling when enforcement is enabled.
+- **Keep structured forensic receipts.** JSONL action evidence and incident reports distinguish the policy verdict, the signal attempt, and the observed process state.
+- **Keep model analysis advisory.** Optional local Ollama analysis may provide context, but it cannot authorize HALT or KILL decisions.
+- **Stay local by default.** Agent Gorgon includes no Hermes Labs telemetry or remote reporting client.
 
-## Install and first run
+## Quickstart
 
-The packaged audit demo is the safe first run: it spawns three processes it owns (no real agent,
-no network access, no credentials needed), watches them in `--audit-only` mode -- which never
-sends SIGSTOP/SIGKILL -- and writes a machine-readable JSON receipt comparing the observed
-verdict against a declared ground truth for each scenario.
+Agent Gorgon requires Python 3.9+.
 
 ```bash
-pip install agent-gorgon==0.3.1
-agent-gorgon-audit-demo --out /tmp/agent-gorgon-audit-demo.json
-```
-
-This is the real output from running that command (Python 3.13, macOS/Darwin, this environment):
-
-```json
-{
-  "generated_at": "2026-09-18T08:24:43Z",
-  "false_trigger_or_miss_count": 1,
-  "scenarios": [
-    {"scenario": "safe_workspace_write", "expected_verdict": "SAFE", "observed_verdict": "SAFE", "match": true},
-    {"scenario": "suspicious_child_name", "expected_verdict": "HALT", "observed_verdict": "SAFE", "match": false},
-    {"scenario": "forbidden_extension_write", "expected_verdict": "KILL", "observed_verdict": "KILL", "match": true}
-  ]
-}
-```
-
-exit status: `1`
-
-`agent-gorgon-audit-demo` exits `0` only when every scenario's `observed_verdict` matches its
-`expected_verdict`, and nonzero otherwise (`false_trigger_or_miss_count` says how many did not);
-it never exits nonzero because a control action fired, since `--audit-only` never sends
-SIGSTOP/SIGKILL. On this run the `suspicious_child_name` fixture wasn't attributed
-(`"total_actions": 0`) inside this sandboxed shell, most likely a process-visibility limit of
-*this* execution environment, not a change made here -- see `docs/EVIDENCE.md` for a full
-three-for-three receipt captured on macOS ARM outside a sandbox. Either way, no file was modified
-and no process was paused or killed: that's what "audit-only" means, and it held regardless of
-the verdict match. Read the receipt at the `--out` path before treating any run as a passing
-calibration.
-
-Once you've seen the demo's audit-only behavior, wrap a real workload with `agent-gorgon run`
-(same audit-only guarantee, no signals sent unless you add `--enforce`):
-
-```bash
+pip install agent-gorgon
 agent-gorgon --version
+```
+
+The safest first real-world run is audit-only:
+
+```bash
 agent-gorgon run --audit-only --scope coding-agent -- <your agent command>
 ```
 
-The version readback confirms the installed command before it observes a workload. CI exercises
-Python 3.9–3.12 on Ubuntu. Production use on macOS, Windows, or Python 3.13+ is currently
-`UNEVALUATED`; active controls and command reduction are POSIX-oriented.
+For example:
 
-Agent Gorgon launches your command, watches the process tree it creates, and prints what it
-*would* have halted -- without pausing or terminating anything. When the command exits you get
-its exit status back plus one summary line:
+```bash
+agent-gorgon run --audit-only --scope coding-agent -- claude
+agent-gorgon run --audit-only --scope coding-agent -- codex
+```
+
+Audit-only evaluates the same policy path but sends no `SIGSTOP` or `SIGKILL`. When the wrapped command exits, Agent Gorgon prints a compact summary and writes evidence:
 
 ```text
 agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
 ```
 
-Read that evidence file before you turn anything on. Active SIGSTOP/SIGKILL controls require an
-explicit `--enforce`, and they are worth enabling only once the flags you see are the ones you
-expect. [Watch a command you launch](#watch-a-command-you-launch) covers the details;
-[attaching to an already-running process](#advanced-attach-to-an-already-running-process) is
-the advanced path.
+Read that evidence before turning enforcement on.
 
-The package, Python import, and primary command all use Gorgon names:
+When you have reviewed the scope against the exact workload and host environment, active signaling for `agent-gorgon run` is explicit:
 
 ```bash
-agent-gorgon --help
-agent-gorgon run --help
+agent-gorgon run --enforce --scope coding-agent -- <your agent command>
 ```
 
-For Python integrations, import the canonical namespace:
+## Safe packaged audit demo
 
-```python
-from agent_gorgon.warden import Scope
-```
-
-Existing `agent_warden` imports and `agent-warden` / `agent-warden-forensic` commands continue to
-work as deprecated compatibility aliases. The legacy commands print a deprecation notice;
-update integrations to the Gorgon names when convenient.
-
-The shim's source and its deprecation window live in
-[`compat/suy-sideguy/README.md`](compat/suy-sideguy/README.md).
-
-Requires Python 3.9+. Start with `--audit-only`; active controls are enabled only when that flag is
-omitted, after you have reviewed the policy against a disposable target.
-
-## Watch a command you launch
-
-`agent-gorgon run` removes the "find the PID first" step: it launches the command itself, watches
-the process tree that command creates, forwards the command's exit status, and writes the same
-evidence JSONL as PID mode.
-
-```bash
-agent-gorgon run --audit-only --scope coding-agent -- python3 my_agent.py
-agent-gorgon run --audit-only --scope coding-agent -- npm test
-```
-
-`--scope coding-agent` is a starter scope shipped inside the wheel, written for a coding agent
-(Claude Code, Codex, Aider, or your own harness). It allows the directory you launched from plus
-the toolchain caches and read-only system paths every build touches, so ordinary work stays quiet;
-it treats reads of `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`, `~/.netrc`,
-`~/.git-credentials` and key material (`.pem`, `.key`, `.p12`) as KILL verdicts, and `curl`,
-`wget`, `nc` and the other transfer tools as forbidden commands. Anything outside the allowed
-trees -- an out-of-tree `.env`, a connection to a host that is not on the allowlist -- is FLAGged
-rather than silently accepted. `--scope starter` remains the narrower low-disruption profile.
-
-Calibrate before you enforce. The packaged scope cannot know where your code lives beyond the
-launch directory, so run a real session in audit-only, read the evidence, and copy the file to
-add your own trees:
-
-```bash
-cp "$(python3 -c 'from agent_gorgon.warden import resolve_scope_path; print(resolve_scope_path("coding-agent"))')" .
-agent-gorgon run --audit-only --scope ./coding-agent.yaml -- python3 my_agent.py
-```
-
-It is **audit-only by default** -- verdicts are recorded and no SIGSTOP or SIGKILL is sent unless
-you pass `--enforce`. The last line is a one-line session summary on stderr, so the watched
-command keeps stdout to itself:
-
-```text
-agent-gorgon run: mode=audit-only exit=0 observed=14 safe=11 flags=3 would-halt=0 would-kill=0 \
-  evidence=/home/you/.local/share/agent-gorgon/logs/actions_20260911_101500.jsonl
-```
-
-Useful options: `--out FILE` writes the action evidence JSONL to an explicit path,
-`--scope FILE` selects a scope, `--poll` sets the poll interval, `--enforce` turns on active
-controls, and `--shutdown-grace` bounds how long a relayed signal is given.
-
-Behavior worth knowing before you wrap a real session:
-
-- The command runs in its own process group, and when stdin is a TTY that group is given the
-  terminal foreground, so interactive agents keep working and Ctrl-C reaches the command rather
-  than the watcher.
-- A SIGINT or SIGTERM sent to `agent-gorgon run` is relayed to the command's group, always
-  preceded by SIGCONT, so a paused tree is never left stopped.
-- The command's exit status is forwarded; a command killed by signal N exits `128+N`.
-- If the scope cannot be loaded or the watcher cannot start, the command is terminated rather
-  than left running unwatched.
-- Stdio the command inherited from `agent-gorgon run` (for example your own `> session.log`
-  redirect) is not attributed to the command. A file the command opens itself still is.
-
-To attach to a process you did not launch, see
-[Advanced: attach to an already-running process](#advanced-attach-to-an-already-running-process).
-
-## Advanced: attach to an already-running process
-
-`agent-gorgon run` covers the common case. PID mode is for attaching to a process you did not
-launch -- a long-lived agent daemon, a session someone else started, a process inside a supervisor.
-It takes an exact `--agent-pid` and is otherwise identical: the same scopes, the same verdicts, the
-same evidence.
-
-This POSIX demo creates a temporary command named `wget` that only runs `sleep`. Agent Gorgon sees
-the suspicious child name and records the HALT it would request, but `--audit-only` sends no signal
-and the command performs no network activity:
-
-```bash
-DEMO_DIR=$(mktemp -d /tmp/agent-gorgon-demo.XXXXXX)
-ln -s "$(command -v sleep)" "$DEMO_DIR/wget"
-/bin/sh -c '"$1" 3 & wait' agent-demo "$DEMO_DIR/wget" &
-TARGET_PID=$!
-
-agent-gorgon \
-  --scope starter \
-  --agent-pid "$TARGET_PID" \
-  --poll 0.05 \
-  --no-llm \
-  --audit-only \
-  --log-dir "$DEMO_DIR/evidence"
-```
-
-The useful result is explicit:
-
-```text
-Control: audit-only (SIGSTOP/SIGKILL disabled)
-LLM: qwen3:4b disabled (rules only)
-🟡 AUDIT ONLY, would HALT: Suspicious process spawned: wget
-Observed: 1 | Safe: 0 | Flags: 0 | Halts: 1 | Kills: 0
-```
-
-Generate a private JSON summary at an explicit path:
-
-```bash
-agent-gorgon-forensic \
-  --last-hours 24 \
-  --workspace "$DEMO_DIR/workspace" \
-  --evidence-dir "$DEMO_DIR/evidence" \
-  --out "$DEMO_DIR/report.json"
-```
-
-The installed `starter` scope is for audit-only evaluation. For a real workload, copy and narrow a
-scope from [examples](examples/), prefer an exact `--agent-pid`, and keep evidence outside the
-target's workspace. Remove the temporary demo directory when you no longer need its report.
-
-For a fully scripted version of this demo -- three scenarios (SAFE/HALT/KILL), each run against a
-process the command spawns and owns, diffed against a declared ground truth -- run:
+For a controlled calibration path with no real agent, network access, or credentials:
 
 ```bash
 agent-gorgon-audit-demo --out /tmp/agent-gorgon-audit-demo.json
 ```
 
-This works from a bare `pip install agent-gorgon`, no repository checkout required. It prints a
-machine-readable JSON receipt with each scenario's expected vs. observed verdict, attribution
-counts, and honest watcher-overhead measurements, and exits nonzero if any scenario's observed
-verdict does not match its declared ground truth. See `docs/EVIDENCE.md` for a sample result and
-`docs/HARNESS_RECIPES.md` for how to add your own scenario.
+The demo launches owned fixtures, evaluates SAFE/HALT/KILL expectations in audit-only mode, writes a machine-readable receipt, and exits nonzero if an observed verdict does not match the declared ground truth.
 
-### Choose the command by what you are evaluating
+See [`docs/EVIDENCE.md`](docs/EVIDENCE.md) for reproducible receipts, overhead measurements, and their limitations.
 
-- `agent-gorgon run --audit-only --scope coding-agent -- <command>` launches a command you own,
-  watches the tree it creates, and writes action JSONL plus a one-line summary. It is the
-  audit-only path for a real workload.
-- `agent-gorgon --scope starter --agent-pid <pid> --audit-only --no-llm` attaches to one exact
-  process that is already running. It is not a process-name search and does not launch a command.
-- `agent-gorgon-audit-demo --out RECEIPT.json` runs the packaged, owned SAFE/HALT/KILL fixtures in
-  audit-only mode. It is the reproducible receipt path, not evidence about your own workload.
+## Attach to an existing process
 
-After the audit demo exits zero, read the receipt before treating it as a usable calibration:
+`agent-gorgon run` is the common path. PID mode is for a process that is already running:
 
 ```bash
-agent-gorgon-audit-demo --out /tmp/gorgon_evidence.json
-python3 - /tmp/gorgon_evidence.json <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    receipt = json.load(handle)
-
-required = {"generated_at", "scenarios", "false_trigger_or_miss_count", "overhead"}
-assert required <= receipt.keys()
-assert receipt["false_trigger_or_miss_count"] == 0
-assert receipt["scenarios"]
-for scenario in receipt["scenarios"]:
-    assert {"expected_verdict", "observed_verdict", "match", "observation_complete"} <= scenario.keys()
-    assert scenario["match"] and scenario["observation_complete"]
-
-print(f"receipt verified: {len(receipt['scenarios'])} owned audit-only scenarios")
-PY
+agent-gorgon   --scope starter   --agent-pid <PID>   --no-llm   --audit-only
 ```
 
-This establishes that the built-in fixtures matched their declared ground truth with at least one
-attributed observation per scenario. It does not establish that a policy covers a different
-workload, OS, process tree, or poll interval.
+Prefer an exact PID over process-name matching.
 
-## When to use it
+## How it works
 
-Use Agent Gorgon when you run autonomous or semi-autonomous agents and need userspace runtime
-observation, reactive process controls, and forensic evidence as one layer in a defense-in-depth
-setup.
+Agent Gorgon polls operating-system telemetry available to the monitored process tree through `psutil` and evaluates observations against the active scope.
 
-## When not to use it
+The normal CLI poll interval is **0.5 seconds**. More aggressive intervals can be configured with `--poll`, with higher watcher overhead. The packaged audit harness uses shorter intervals for its controlled scenarios; those should not be confused with the CLI default.
 
-- Not a kernel-level sandbox. If your threat model requires kernel isolation, use a kernel sandbox.
-- Not a substitute for input-side prompt-injection defenses.
-- Not proof that any single policy file covers every workload safely. Policies need calibration on each workload.
-- Not pre-execution interposition. An action may start or finish before polling observes it.
+| Verdict | Meaning | Response |
+|---|---|---|
+| `SAFE` | Observation is within active policy | Continue |
+| `FLAG` | Suspicious or outside expected scope, below intervention threshold | Log and continue |
+| `HALT` | Deterministic dangerous pattern matched | Attempt process-tree `SIGSTOP` and record evidence |
+| `KILL` | Deterministic severe violation matched | Attempt process-tree `SIGKILL` and record evidence |
 
-If 40 files disappear between snapshots, agent-gorgon records 40 unattributed delete observations.
-It does not suspend the monitored process from those observations alone because a directory diff
-cannot establish which process performed the deletion.
+The optional local LLM path is advisory-only. Deterministic policy owns active control decisions.
 
----
+### The `coding-agent` scope
 
-## What this tool is (and is not)
+`coding-agent` is a shipped **starter scope for coding-agent workloads**, not a universal or production-calibrated policy.
 
-### ✅ What it does
-- Polls the process, file, and network signals available for an agent process tree
-- Applies deterministic policy rules; an optional local Ollama judge can only recommend SAFE/FLAG
-- Attempts **HALT** on deterministic, process-attributed triggers (SIGSTOP, a reversible pause,
-  plus a local log/report)
-- Attempts **KILL** with `SIGKILL` for deterministic severe violations
-- Stores evidence and can generate incident-ready forensic reports
+It is designed to make common development activity usable while surfacing behavior such as:
 
-### ⚠️ What it does not do
-- It is **not kernel-level enforcement** (it runs in userspace)
-- It is reactive polling, not syscall interception or a guarantee that a dangerous action is stopped before effect
-- File visibility via `psutil.open_files()` is best-effort and OS-dependent
-- Short-lived children and actions between polls can be missed; this is not complete process or
-  syscall visibility
-- Snapshot-diff create/delete observations are unattributed and never suspend or kill the monitored process
-- Network observations are remote IP/port pairs; hostname allowlists do not authenticate an observed IP
-- Signal attempts can fail or only partially cover a changing process tree; reports record the
-  observed outcome. Failed HALT/KILL attempts remain retryable; retries reconcile actual process
-  state and update one episode report without claiming an unobserved outcome
+- reads of SSH, AWS, GPG, gcloud, GitHub, netrc, credential, and key material;
+- outbound transfer utilities such as `curl`, `wget`, and `nc`;
+- writes outside the expected workspace;
+- network activity outside configured policy;
+- destructive recursive deletion patterns.
 
-## Where logs and evidence go
+The scope cannot know your repository layout, caches, credentials policy, network requirements, or threat model. Run it in audit-only mode first and adapt it to the workload.
 
-Default paths:
+See [`docs/HARNESS_RECIPES.md`](docs/HARNESS_RECIPES.md) for scenario and harness guidance.
+
+## Structured forensic receipts
+
+Agent Gorgon separates observation from claims about enforcement.
+
+Default evidence locations include:
 
 - `~/.local/share/agent-gorgon/warden.log`
 - `~/.local/share/agent-gorgon/logs/actions_*.jsonl`
 - `~/.local/share/agent-gorgon/logs/incidents/*.json`
 
-Agent Gorgon creates these directories for the current user only (`0700`) and evidence files as
-private (`0600`). Define retention and rotation appropriate to your environment.
+Evidence directories are created for the current user and evidence files are restricted to that user where the host supports those permissions.
 
----
+Generate a structured incident report from recent evidence:
+
+```bash
+agent-gorgon-forensic   --last-hours 24   --workspace /path/to/workspace   --evidence-dir ~/.local/share/agent-gorgon/logs   --out report.json
+```
+
+These are **structured forensic receipts**, not cryptographically immutable records. They are local evidence artifacts that should be protected and retained according to your environment.
+
+## When to use Agent Gorgon
+
+Use Agent Gorgon when you want:
+
+- visibility into what an autonomous or semi-autonomous agent process actually does on the host;
+- an audit-first way to rehearse runtime policy before signaling anything;
+- deterministic user-space controls around an existing tool without an SDK integration;
+- local evidence for review after a session;
+- another layer in a defense-in-depth architecture alongside stronger isolation.
+
+## Important boundaries
+
+Agent Gorgon is deliberately explicit about what it does **not** prove.
+
+- **Not a kernel sandbox.** It does not replace namespaces, seccomp, virtualization, or other kernel/VM isolation.
+- **Reactive, not pre-execution interposition.** An action can begin or finish between polling observations.
+- **User-space visibility is incomplete.** Short-lived children, file handles, or other activity can be missed depending on timing and operating-system visibility.
+- **Snapshot diffs are not process attribution.** Unattributed filesystem changes are recorded but do not by themselves justify suspending a process.
+- **Signal attempts are attempts.** A process tree can change while a signal is being applied, and operating-system behavior can differ.
+- **A scope is not a proof of coverage.** Policies need calibration against each workload and environment.
+- **Audit receipts describe the evaluated environment.** They are not cross-platform certification.
+
+CI exercises Python 3.9–3.12 on Ubuntu. Production use outside the evaluated environments should be treated as unevaluated until validated for the exact host and workload. Active controls are POSIX-oriented.
 
 ## Privacy and network behavior
 
-- Agent Gorgon itself has no telemetry or external reporting client: it does not send observed
-  data to a Hermes Labs service or another remote endpoint.
-- Unless you pass `--no-llm`, it makes a loopback HTTP probe to
-  `http://localhost:11434` to check for Ollama. Only when the configured model is available does
-  it send the current action, a scope summary, and up to 20 recent actions to that **local** Ollama
-  service for non-enforcing advisory analysis. `--no-llm` disables both the loopback probe and
-  those advisory calls.
-- Remote IP policy checks do not perform reverse DNS. Raw IPs must be allowed or forbidden
-  explicitly; hostname allowlists apply only when a hostname is supplied by an integration.
-- Local JSONL evidence contains full observed paths, commands, and remote IP/port values. Protect
-  it as sensitive operational data and configure retention.
+Agent Gorgon itself has no external telemetry or Hermes Labs reporting client.
 
-## Recommended rollout strategy
+Unless `--no-llm` is used, it may probe the configured local Ollama service, which defaults to `http://localhost:11434`, and may send local action context to that configured Ollama endpoint for advisory analysis.
 
-Start with `agent-gorgon run --audit-only` and a reviewed scope, against a workload you can afford
-to lose. Add `--no-llm` for a deterministic no-advisory trial. Audit-only records verdicts but sends no SIGSTOP
-or SIGKILL. Enable active controls (omit `--audit-only` in PID mode, or pass `--enforce` to
-`agent-gorgon run`) only after validating the policy and OS visibility for the exact workload;
-there is no interactive confirmation mode once active controls are enabled.
+`--no-llm` disables that advisory path.
 
----
+Local evidence can contain sensitive paths, commands, and remote IP/port observations. Treat it as operationally sensitive data.
 
-## Important safety caveats
+## Recommended rollout
 
-- `SIGKILL` is immediate and can interrupt legitimate work if policy is too broad.
-- Name targeting requires one unique exact process-name match. Prefer `agent-gorgon run`, which
-  watches exactly the process it launched, or an exact `--agent-pid`.
-- This project should be one part of a layered defense strategy.
+1. Install Agent Gorgon.
+2. Run the packaged audit demo if you want a controlled smoke test.
+3. Wrap the real workload with `--audit-only`.
+4. Review the JSONL evidence.
+5. Copy and narrow a starter scope for your environment.
+6. Repeat audit-only until expected work is quiet and dangerous cases are visible.
+7. Enable `--enforce` only when you are comfortable with the policy and host behavior.
 
-## Verdict levels
+## Documentation
 
-| Verdict | Meaning | Response |
-|---------|---------|----------|
-| `SAFE` | Action is within policy | Continue |
-| `FLAG` | Suspicious, below threshold | Log, continue |
-| `HALT` | Dangerous pattern detected | Attempt process-tree SIGSTOP (reversible); write local evidence |
-| `KILL` | Critical violation | Attempt process-tree SIGKILL; write local evidence |
+- [Evidence and reproducible receipts](docs/EVIDENCE.md)
+- [Harness recipes](docs/HARNESS_RECIPES.md)
+- [Audit checklist](docs/AUDIT_CHECKLIST.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Compatibility shim notes](compat/suy-sideguy/README.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Release checklist](PUBLISH_CHECKLIST.md)
+- [Contributor agent guide](AGENTS.md)
+- [Layered implementation plan](docs/IMPLEMENTATION_PLAN_LAYERED.md)
+- [Examples](examples/)
 
-### HALT triggers (attempt SIGSTOP, a reversible pause; the agent is not intentionally killed)
-- **curl or wget child observed** — unexpected outbound-data-transfer process
-- **50+ distinct process-attributed network-connection observations in 60 seconds** — bulk egress signal
-- **Process-attributed write outside allowed workspace** — unexpected filesystem access, when the OS exposes write mode
-- **3+ process-attributed `FILE_DELETE` events in 10 seconds** — available to integrations that can supply attribution; built-in snapshot diffs do not activate this trigger
-- **Relative recursive delete with no observed child cwd** — the target cannot be resolved safely,
-  so the Warden pauses instead of guessing SAFE or assigning irreversible KILL authority
-- **Recursive delete outside allowed filesystem scope** — arbitrary literal targets do not become
-  SAFE merely because their `sh`/`bash` wrapper is allowed; conventional relative project cleanup
-  remains low-noise when its observed cwd resolves inside `filesystem.allowed_paths`
-- **Recursive delete with unresolved wrapper, command, option, or target semantics** — the Warden
-  pauses when exact reduction is not possible instead of guessing SAFE or assigning KILL authority
-- **Recursive delete inside executable shell command substitution** — unquoted/double-quoted
-  `` `...` `` and `$(...)` forms pause reversibly; single-quoted substitution text remains data
+## Project basics
 
-### KILL triggers (attempt process-tree SIGKILL after observation)
-- **Attributed private-key access** — observed read/write to recognized SSH key names such as
-  `id_rsa` or `id_ed25519`, plus key extensions such as `*.pem` or `*.key` under `~/.ssh`; broad
-  directory rules belong in the operator's scope
-- **Attributed config write** — observed write to `~/.openclaw/openclaw.json`
-- **Observed child `rm -rf` command targeting a protected root** — filesystem root, home, or a
-  configured forbidden root; relative operands are resolved against the observed child cwd, and
-  supported `env` wrappers plus root/home glob and ancestor forms are reduced before classification;
-  direct child argv is preserved so literal `~`, `$HOME`, and wildcard bytes are not re-expanded
-- **Attributed credential read with active or newly observed non-local network egress** — an
-  established external socket at read time, or a new external connection inside the configured
-  short window, activates the correlation; IP loopback IPC is exempt and does not disarm it
-- **Attributed forbidden-path or forbidden-extension access** — paths in `filesystem.forbidden_paths` or extensions in `filesystem.forbidden_extensions`
+Agent Gorgon is maintained by [Hermes Labs](https://hermes-labs.ai).
 
----
+Distributed under the Apache-2.0 License. See [LICENSE](LICENSE).
 
-## Expected flag noise (early rollout)
-
-Early flag noise is normal during policy calibration on real workloads.
-
-- Treat early `FLAG` events as calibration data, not immediate defects.
-- Flags do not auto-kill by default. `WARDEN_KILL_ON_FLAGS=1` explicitly enables accumulation kills using `flag_threshold` and `flag_window`.
-- Keep **hard invariants** (e.g., forbidden secrets paths / destructive commands) as immediate stop decisions.
-- Version 0.1.7 includes audit-only calibration; active controls remain explicit through omission
-  of `--audit-only`.
-
----
-
-
-## Release quality status
-
-_Current status based on repository checks and CI configuration; not a formal security certification._
-
-
-- ✅ Tests in repo (`pytest`)
-- ✅ Package buildable (`python -m build`)
-- ✅ CI workflow (`.github/workflows/ci.yml`)
-- ✅ Release workflow builds, tests, inspects, and smoke-installs the exact tagged artifact before
-  requesting PyPI trusted publication
-- ✅ Security disclosure policy (`SECURITY.md`)
-
-If agent-gorgon saves you time, please [star the repo](https://github.com/hermes-labs-ai/agent-gorgon) — it helps others find it.
-
----
-
-## About Hermes Labs
-
-Hermes Labs is an AI reliability engineering studio for production agents and LLM
-applications. agent-gorgon is the runtime-observation and control layer in its open-source
-toolkit. More at [hermes-labs.ai](https://hermes-labs.ai).
-
----
-
-## Development
-
-```bash
-pip install -e .[dev]
-pytest
-```
-
-Also see:
-- `CONTRIBUTING.md`
-- `SECURITY.md`
-- `PUBLISH_CHECKLIST.md`
-- `AGENTS.md`
-- `CODE_OF_CONDUCT.md`
-- Audit checklist: `docs/AUDIT_CHECKLIST.md`
-- Concrete harness recipes: `docs/HARNESS_RECIPES.md`
-- Owned-process audit fixtures, attribution/false-trigger results, honest overhead measurements:
-  `agent-gorgon-audit-demo` (packaged), `examples/harness/` (source-checkout wrapper), and
-  `docs/EVIDENCE.md`
-- Layered plan: `docs/IMPLEMENTATION_PLAN_LAYERED.md`
-
-## Related Hermes Labs tools
-
-- [te-drift-detector](https://github.com/hermes-labs-ai/te-drift-detector) — experimental lexical feature-delta telemetry for human triage
-- [hermes-blind](https://github.com/hermes-labs-ai/hermes-blind) — context-compensation scaffold for evidence-bound LLM evaluation prompts
-- [lintlang](https://github.com/hermes-labs-ai/lintlang) — static linter for agent configs and prompts (catch it before runtime)
+Security issues should be reported according to [SECURITY.md](SECURITY.md).
