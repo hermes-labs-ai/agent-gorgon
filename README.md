@@ -4,20 +4,11 @@
 
 <img src="assets/agent-gorgon-artwork.png" width="760" alt="Agent Gorgon artwork: a watchful eye encircled by two coral serpents" />
 
-<p><strong>Audit coding agents at runtime. Enforce deterministic policy when you are ready.</strong></p>
-
 <p>Watch process, file, and network activity visible from user space, rehearse policy without sending signals, and keep a local evidence trail.</p>
 
 <p>Agent Gorgon is developed by <a href="https://hermes-labs.ai">Hermes Labs</a>.</p>
 
-<p>Hermes Labs studies failure modes in agent and LLM systems, develops open-source tools that treat language as part of the runtime, and works with teams to remediate reliability failures in production.</p>
-
-<p>
-<a href="#quickstart">Quickstart</a> ·
-<a href="docs/EVIDENCE.md">Evidence</a> ·
-<a href="docs/HARNESS_RECIPES.md">Recipes</a> ·
-<a href="SECURITY.md">Security</a>
-</p>
+<p>Hermes Labs is an agentic infrastructure company building the reliability layer for autonomous systems.</p>
 
 <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-green.svg"></a>
 <a href="https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/hermes-labs-ai/agent-gorgon/actions/workflows/ci.yml/badge.svg"></a>
@@ -25,6 +16,10 @@
 <a href="https://pypi.org/project/agent-gorgon/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/agent-gorgon"></a>
 
 </div>
+
+**Audit coding agents at runtime. Enforce deterministic policy when you are ready.**
+
+[Quickstart](#quickstart) · [Evidence](docs/EVIDENCE.md) · [Recipes](docs/HARNESS_RECIPES.md) · [Security](SECURITY.md)
 
 ## Why Agent Gorgon
 
