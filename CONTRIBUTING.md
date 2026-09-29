@@ -21,11 +21,12 @@ ruff check .
 mypy agent_gorgon agent_warden
 python -m agent_gorgon.warden --help
 python -m agent_gorgon.forensic_report --help
+pip install build
 python -m build && python -m build compat/suy-sideguy
 ```
 
 The test, lint, type-check and build commands are the ones `.github/workflows/ci.yml` runs
-(`pip install build` first); the `--help` smoke checks are extra.
+(with `build` installed, as above); the `--help` smoke checks are extra.
 
 ## Pull request expectations
 
